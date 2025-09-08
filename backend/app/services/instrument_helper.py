@@ -31,6 +31,34 @@ def generate_option_symbol(underlying: str, expiry_date: date, strike: int, opti
     # It may need to be adjusted based on the exact format in the instrument master file.
     return f"{underlying_upper}{day}{month_upper}{year_short}{strike}{option_type.upper()}"
 
+def get_monthly_expiry(year: int, month: int) -> date:
+    """Calculates the last Thursday of a given month and year."""
+    import calendar
+    last_day = calendar.monthrange(year, month)[1]
+    last_date = date(year, month, last_day)
+    offset = (last_date.weekday() - 3 + 7) % 7
+    return last_date - timedelta(days=offset)
+
+def generate_futures_symbol(underlying: str, contract_month: str) -> str:
+    """
+    Generates the tradable futures symbol for the current or next month.
+    Example: NIFTY24SEPFUT
+    """
+    today = date.today()
+    year, month = today.year, today.month
+
+    if contract_month.upper() == "NEXT":
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+
+    expiry_date = get_monthly_expiry(year, month)
+    month_upper = expiry_date.strftime('%b').upper()
+    year_short = expiry_date.strftime('%y')
+
+    return f"{underlying.upper()}{year_short}{month_upper}FUT"
+
 async def get_strike_by_delta(underlying: str, expiry_date: date, target_delta: float, connector) -> tuple[int | None, int | None]:
     """
     Finds the call and put strike prices with deltas closest to the target delta.

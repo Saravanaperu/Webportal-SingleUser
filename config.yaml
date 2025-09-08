@@ -24,6 +24,11 @@ options_strategy:
   strike_selection_method: "DELTA" # ATM or DELTA
   target_delta: 0.40
 
+# Futures Strategy Configuration
+futures_strategy:
+  enabled: true
+  contract_month: "CURRENT" # CURRENT, NEXT
+
 # Underlying index tokens (some may not be in the instrument master file)
 underlying_instruments:
   "NIFTY": { "symbol": "Nifty 50", "token": "99926000", "exchange": "NSE", "strike_interval": 50, "lot_size": 75 }
