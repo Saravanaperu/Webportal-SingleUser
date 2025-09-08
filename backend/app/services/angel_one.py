@@ -71,3 +71,9 @@ class AngelOneConnector:
         if not self.rest_client:
             return None
         return await asyncio.to_thread(self.rest_client.place_order, order_params)
+
+    async def get_candle_data(self, historic_params: dict) -> list | None:
+        """Fetches historical candle data."""
+        if not self.rest_client:
+            return None
+        return await asyncio.to_thread(self.rest_client.get_candle_data, historic_params)
