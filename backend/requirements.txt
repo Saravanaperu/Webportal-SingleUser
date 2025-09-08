@@ -14,3 +14,7 @@ PyYAML
 loguru
 pyotp
 numpy
+smartapi-python-py
+logzero
+websocket-client
+pycryptodome

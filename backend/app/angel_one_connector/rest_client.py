@@ -1,79 +1,109 @@
 import httpx
 from app.core.logging import logger
+from SmartApi import SmartConnect
 
 class AngelRestClient:
     """
-    Asynchronous REST client for interacting with the AngelOne API.
-    This is a placeholder implementation.
+    REST client for interacting with the AngelOne API using the smartapi-python library.
     """
-    # This URL may vary. User should verify.
-    BASE_URL = "https://apiconnect.angelbroking.com/rest/secure/angelbroking"
+    INSTRUMENT_LIST_URL = "https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json"
+    _instrument_cache = None
 
-    def __init__(self, auth_token: str):
-        self.auth_token = auth_token
-        self.headers = {
-            "Authorization": f"Bearer {self.auth_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-UserType": "USER",
-            "X-SourceID": "WEB",
-            "X-ClientLocalIP": "192.168.1.1",
-            "X-ClientPublicIP": "10.0.0.1",
-            "X-MACAddress": "00:00:00:00:00:00",
-        }
-        self.client = httpx.AsyncClient(headers=self.headers, base_url=self.BASE_URL)
+    def __init__(self, smart_api: SmartConnect):
+        self.smart_api = smart_api
 
-    async def get_profile(self) -> dict | None:
+    def get_profile(self, refresh_token: str) -> dict | None:
         """Fetches user profile, including funds."""
-        logger.info("Fetching profile from AngelOne (simulated)...")
+        logger.info("Fetching profile from AngelOne...")
         try:
-            # Real call:
-            # response = await self.client.get("/user/v1/profile")
-            # response.raise_for_status()
-            # data = response.json().get("data")
-
-            # Placeholder data:
-            data = {"net": 100000.0, "availablecash": 100000.0, "name": "Test User"}
-            return {"balance": data.get('net'), "margin": data.get('availablecash')}
+            profile_data = self.smart_api.getProfile(refresh_token)
+            if profile_data.get("status") and profile_data.get("data"):
+                data = profile_data["data"]
+                return {
+                    "balance": float(data.get("net")),
+                    "margin": float(data.get("availablecash")),
+                    "name": data.get("name")
+                }
+            else:
+                logger.error(f"Failed to fetch profile: {profile_data.get('message')}")
+                return None
         except Exception as e:
             logger.error(f"Error fetching profile: {e}", exc_info=True)
             return None
 
-    async def get_positions(self) -> list | None:
+    def get_positions(self) -> list | None:
         """Fetches open positions."""
-        logger.info("Fetching positions from AngelOne (simulated)...")
+        logger.info("Fetching positions from AngelOne...")
         try:
-            # Real call:
-            # response = await self.client.get("/order-management/v1/position")
-            # response.raise_for_status()
-            # return response.json().get("data")
-            return []  # Placeholder
+            positions_data = self.smart_api.position()
+            if positions_data.get("status"):
+                return positions_data.get("data", [])
+            else:
+                logger.error(f"Failed to fetch positions: {positions_data.get('message')}")
+                return None
         except Exception as e:
             logger.error(f"Error fetching positions: {e}", exc_info=True)
             return None
 
-    async def get_orders(self) -> list | None:
+    def get_orders(self) -> list | None:
         """Fetches today's orders."""
-        logger.info("Fetching orders from AngelOne (simulated)...")
+        logger.info("Fetching orders from AngelOne...")
         try:
-            # Real call:
-            # response = await self.client.get("/order-management/v1/order")
-            # response.raise_for_status()
-            # return response.json().get("data")
-            return []  # Placeholder
+            order_data = self.smart_api.orderBook()
+            if order_data.get("status"):
+                return order_data.get("data", [])
+            else:
+                logger.error(f"Failed to fetch orders: {order_data.get('message')}")
+                return None
         except Exception as e:
             logger.error(f"Error fetching orders: {e}", exc_info=True)
             return None
 
-    async def place_order(self, params: dict) -> dict | None:
+    def place_order(self, params: dict) -> dict | None:
         """Places an order."""
-        logger.info(f"Placing order (simulated): {params}")
+        logger.info(f"Placing order: {params}")
         try:
-            # Real call:
-            # response = await self.client.post("/order-management/v1/order", json=params)
-            # response.raise_for_status()
-            # return response.json()
-            return {"status": "success", "orderid": "SIM12345"}  # Placeholder
+            order_response = self.smart_api.placeOrder(params)
+            if order_response:
+                if isinstance(order_response, dict) and order_response.get("status"):
+                    return order_response
+                elif isinstance(order_response, str):
+                     return {"status": "success", "orderid": order_response}
+                else:
+                    logger.error(f"Order placement failed with response: {order_response}")
+                    return None
+            else:
+                logger.error("Order placement returned a null response.")
+                return None
         except Exception as e:
             logger.error(f"Error placing order: {e}", exc_info=True)
+            return None
+
+    async def get_instrument_list(self) -> list | None:
+        """
+        Fetches the full list of tradable instruments from the AngelOne URL.
+        Caches the result in memory to avoid repeated downloads.
+        """
+        if AngelRestClient._instrument_cache:
+            logger.info("Returning cached instrument list.")
+            return AngelRestClient._instrument_cache
+
+        logger.info("Fetching instrument list from AngelOne...")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self.INSTRUMENT_LIST_URL)
+                response.raise_for_status()
+                instruments = response.json()
+                if instruments:
+                    AngelRestClient._instrument_cache = instruments
+                    logger.info(f"Successfully fetched and cached {len(instruments)} instruments.")
+                    return instruments
+                else:
+                    logger.error("Instrument list fetched is empty.")
+                    return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching instrument list: {e.response.status_code} - {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching instrument list: {e}", exc_info=True)
             return None
