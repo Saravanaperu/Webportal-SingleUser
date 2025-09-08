@@ -21,6 +21,8 @@ options_strategy:
   trade_puts: true
   sl_percentage: 50.0
   tp_percentage: 100.0
+  strike_selection_method: "DELTA" # ATM or DELTA
+  target_delta: 0.40
 
 # Underlying index tokens (some may not be in the instrument master file)
 underlying_instruments:

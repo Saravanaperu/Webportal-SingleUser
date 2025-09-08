@@ -58,5 +58,6 @@ class Position(Base):
     highest_price_seen = Column(Float, nullable=True)
     status = Column(String, default="OPEN") # 'OPEN' or 'CLOSED'
     pnl = Column(Float, default=0.0)
+    live_pnl = Column(Float, default=0.0)
     entry_ts = Column(DateTime)
     exit_ts = Column(DateTime, nullable=True)

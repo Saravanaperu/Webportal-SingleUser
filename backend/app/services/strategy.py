@@ -225,10 +225,21 @@ class TradingStrategy:
         spot_price = latest_candle['close']
 
         config = settings.underlying_instruments.get(underlying)
-        atm_strike = options_helper.get_atm_strike(spot_price, config.strike_interval)
         expiry = options_helper.get_current_weekly_expiry()
 
-        option_symbol = options_helper.generate_option_symbol(underlying, expiry, atm_strike, option_type)
+        strike_to_trade = None
+        if settings.options_strategy.strike_selection_method == "DELTA":
+            target_delta = settings.options_strategy.target_delta
+            call_strike, put_strike = await options_helper.get_strike_by_delta(underlying, expiry, target_delta, self.connector)
+            strike_to_trade = call_strike if option_type == "CE" else put_strike
+        else: # Default to ATM
+            strike_to_trade = options_helper.get_atm_strike(spot_price, config.strike_interval)
+
+        if not strike_to_trade:
+            logger.error(f"Could not determine strike to trade for {underlying}. Skipping.")
+            return
+
+        option_symbol = options_helper.generate_option_symbol(underlying, expiry, strike_to_trade, option_type)
 
         # 2. Check if we are already in a trade for this underlying
         query = select(Position).where(Position.symbol.like(f"{underlying}%"), Position.status == "OPEN")
@@ -303,7 +314,12 @@ class TradingStrategy:
 
             current_price = ticks_df.iloc[-1]['price']
 
-            # 2. Trailing Stop-Loss Logic
+            # 2. Update Live PnL
+            live_pnl = (current_price - pos.avg_price) * pos.qty if pos.side == 'BUY' else (pos.avg_price - current_price) * pos.qty
+            update_pnl_q = Position.__table__.update().where(Position.id == pos.id).values(live_pnl=live_pnl)
+            await database.execute(update_pnl_q)
+
+            # 3. Trailing Stop-Loss Logic
             trailing_sl = pos.trailing_sl
             if settings.strategy.trailing_sl.is_enabled:
                 underlying_candles = await self.get_candle_data(pos.underlying)

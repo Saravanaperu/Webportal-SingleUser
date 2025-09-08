@@ -98,6 +98,24 @@ class AngelRestClient:
             logger.error(f"Error fetching LTP for {tradingsymbol}: {e}", exc_info=True)
             return None
 
+    def get_option_chain(self, underlying: str, expiry_date: str) -> dict | None:
+        """Fetches the option chain with Greeks for a given underlying and expiry."""
+        logger.info(f"Fetching option chain for {underlying} on {expiry_date}...")
+        try:
+            params = {
+                "name": underlying,
+                "expirydate": expiry_date
+            }
+            option_chain_data = self.smart_api.optionGreek(params)
+            if option_chain_data.get("status") and option_chain_data.get("data"):
+                return option_chain_data["data"]
+            else:
+                logger.error(f"Failed to fetch option chain for {underlying}: {option_chain_data.get('message')}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching option chain for {underlying}: {e}", exc_info=True)
+            return None
+
     async def get_instrument_list(self) -> list | None:
         """
         Fetches the full list of tradable instruments from the AngelOne URL.
