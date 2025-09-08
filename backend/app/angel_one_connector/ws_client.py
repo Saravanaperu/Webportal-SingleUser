@@ -86,6 +86,21 @@ class AngelWsClient:
         # The `subscribe` method is synchronous.
         self.sws.subscribe(correlation_id, mode, token_list)
 
+    async def subscribe_to_tokens(self, token_list: list[dict]):
+        """
+        Subscribes to market data for a new set of tokens on the fly.
+        """
+        if not self.sws or not self._is_connected:
+            logger.warning("Cannot subscribe, WebSocket is not connected.")
+            return
+
+        correlation_id = str(uuid.uuid4())
+        action = 1  # 1 for subscribe
+        mode = 1    # 1 for LTP
+
+        logger.info(f"Dynamically subscribing to new tokens: {token_list}")
+        self.sws.subscribe(correlation_id, mode, token_list)
+
     async def receive_data(self):
         """
         An async generator to yield messages from the data queue.
