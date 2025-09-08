@@ -19,6 +19,8 @@ options_strategy:
   strikes_from_atm: 2
   trade_calls: true
   trade_puts: true
+  sl_percentage: 50.0
+  tp_percentage: 100.0
 
 # Underlying index tokens (some may not be in the instrument master file)
 underlying_instruments:
