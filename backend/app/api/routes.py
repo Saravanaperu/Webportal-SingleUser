@@ -46,24 +46,24 @@ async def control_strategy(request: Request, payload: dict = Body(...)):
     """
     action = payload.get("action")
     try:
-        strategy = request.app.state.strategy
+        engine = request.app.state.engine
         risk_manager = request.app.state.risk_manager
 
         if action == "start":
-            if not strategy.is_running:
-                strategy.start()
-                return {"status": "Strategy started."}
-            return {"status": "Strategy is already running."}
+            if not engine.is_running:
+                engine.start()
+                return {"status": "Trading engine started."}
+            return {"status": "Trading engine is already running."}
 
         elif action == "stop":
-            if strategy.is_running:
-                strategy.stop()
-                return {"status": "Strategy stopped."}
-            return {"status": "Strategy is already stopped."}
+            if engine.is_running:
+                engine.stop()
+                return {"status": "Trading engine stopped."}
+            return {"status": "Trading engine is already stopped."}
 
         elif action == "kill":
             risk_manager.stop_trading("Manual kill switch activated.")
-            strategy.stop()
+            engine.stop()
             # In a real app, you would also trigger closing all positions.
             # await request.app.state.order_manager.close_all_positions()
             return {"status": "EMERGENCY STOP ACTIVATED. All trading halted."}

@@ -1,5 +1,6 @@
 # Strategy Configuration
 strategy:
+  active_strategy: "EMACrossoverSupertrendStrategy" # The name of the strategy class to load
   timeframe: "1minute"
   ema_short: 9
   ema_long: 21

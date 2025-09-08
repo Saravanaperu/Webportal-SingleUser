@@ -10,7 +10,7 @@ from app.db.session import database, create_tables
 from app.services.angel_one import AngelOneConnector
 from app.services.risk_manager import RiskManager
 from app.services.order_manager import OrderManager
-from app.services.strategy import TradingStrategy
+from app.services.trading_engine import TradingEngine
 from app.services.instrument_manager import instrument_manager
 
 app = FastAPI(title="Automated Trading Portal")
@@ -60,7 +60,7 @@ async def startup_event():
         # Initialize core services
         risk_manager = RiskManager(account_equity=equity)
         order_manager = OrderManager(connector=connector, risk_manager=risk_manager, instrument_manager=instrument_manager)
-        strategy = TradingStrategy(order_manager=order_manager,
+        engine = TradingEngine(order_manager=order_manager,
                                      risk_manager=risk_manager,
                                      connector=connector,
                                      instrument_manager=instrument_manager)
@@ -68,12 +68,12 @@ async def startup_event():
         # Store services in app.state to make them accessible from API endpoints
         app.state.risk_manager = risk_manager
         app.state.order_manager = order_manager
-        app.state.strategy = strategy
+        app.state.engine = engine
 
-        # Start the strategy and run it as a background task
-        strategy.start()
-        app.state.strategy_task = asyncio.create_task(strategy.run())
-        logger.info("Core services initialized and strategy background task started.")
+        # Start the engine and run it as a background task
+        engine.start()
+        app.state.engine_task = asyncio.create_task(engine.run())
+        logger.info("Core services initialized and trading engine background task started.")
 
     except Exception as e:
         logger.critical(f"Fatal error during service initialization: {e}", exc_info=True)
@@ -85,9 +85,9 @@ async def shutdown_event():
     Defines actions for graceful application shutdown.
     """
     logger.info("Application shutdown sequence initiated...")
-    if hasattr(app.state, 'strategy_task') and not app.state.strategy_task.done():
-        app.state.strategy_task.cancel()
-        logger.info("Strategy task cancelled.")
+    if hasattr(app.state, 'engine_task') and not app.state.engine_task.done():
+        app.state.engine_task.cancel()
+        logger.info("Trading engine task cancelled.")
 
     if database.is_connected:
         await database.disconnect()
