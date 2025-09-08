@@ -1,53 +1,31 @@
 # Strategy Configuration
 strategy:
+  instruments:
+    - "NIFTYBEES-EQ"
+    - "BANKBEES-EQ"
   timeframe: "1minute"
   ema_short: 9
   ema_long: 21
   supertrend_period: 10
   supertrend_multiplier: 3
   atr_period: 14
-  trailing_sl:
-    is_enabled: true
-    atr_multiplier: 1.5 # Trail by 1.5x ATR
-
-# Options Strategy Configuration
-options_strategy:
-  underlyings:
-    - "NIFTY"
-    - "BANKNIFTY"
-    - "SENSEX"
-  strikes_from_atm: 2
-  trade_calls: true
-  trade_puts: true
-  sl_percentage: 50.0
-  tp_percentage: 100.0
-  strike_selection_method: "DELTA" # ATM or DELTA
-  target_delta: 0.40
-
-# Futures Strategy Configuration
-futures_strategy:
-  enabled: true
-  contract_month: "CURRENT" # CURRENT, NEXT
-
-# Underlying index tokens (some may not be in the instrument master file)
-underlying_instruments:
-  "NIFTY": { "symbol": "Nifty 50", "token": "99926000", "exchange": "NSE", "strike_interval": 50, "lot_size": 75 }
-  "BANKNIFTY": { "symbol": "Nifty Bank", "token": "99926009", "exchange": "NSE", "strike_interval": 100, "lot_size": 30 }
-  "SENSEX": { "symbol": "SENSEX", "token": "99926001", "exchange": "BSE", "strike_interval": 100, "lot_size": 20 }
 
 # Risk Management Configuration
 risk:
-  risk_per_trade_percent: 0.25 # For equity trades
-  max_risk_per_option_trade: 2000 # Max loss in currency for a single options trade
+  risk_per_trade_percent: 0.25
   max_daily_loss_percent: 3.0
   consecutive_losses_stop: 3
+  trailing_stop:
+    activate_at_atr: 0.5
+    trail_by_atr: 0.3
+  take_profit_atr: 0.6
 
 # Trading Session Configuration
 trading:
   hours:
     start: "09:15"
-    end: "15:20"
-    end_of_day_exit: "15:15" # Close all positions at this time
+    end: "15:20" # Market closes at 15:30, close all trades 10 mins before
+  paper_trading: true
 
 # Cooldown Configuration
 cooldown:

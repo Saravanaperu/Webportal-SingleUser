@@ -37,8 +37,6 @@ class InstrumentManager:
     def _build_map(self):
         """
         Builds a mapping from tradingsymbol to token for faster lookups.
-        The map structure is: {tradingsymbol: {exchange: token}}
-        e.g., {"NIFTYBEES-EQ": {"NSE": "12345"}}
         """
         for instrument in self.instrument_list:
             symbol = instrument.get("tradingsymbol")
@@ -66,6 +64,13 @@ class InstrumentManager:
             return None
 
         return token
+
+    def get_underlying_config(self, underlying: str) -> dict | None:
+        """
+        Gets the configuration for a given underlying from the settings file.
+        """
+        from app.core.config import settings
+        return settings.underlying_instruments.get(underlying)
 
 # Create a single instance of the instrument manager
 instrument_manager = InstrumentManager()

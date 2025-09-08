@@ -12,6 +12,35 @@ class AngelRestClient:
     def __init__(self, smart_api: SmartConnect):
         self.smart_api = smart_api
 
+    async def get_instrument_list(self) -> list | None:
+        """
+        Fetches the full list of tradable instruments from the AngelOne URL.
+        Caches the result in memory to avoid repeated downloads.
+        """
+        if AngelRestClient._instrument_cache:
+            logger.info("Returning cached instrument list.")
+            return AngelRestClient._instrument_cache
+
+        logger.info("Fetching instrument list from AngelOne...")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self.INSTRUMENT_LIST_URL)
+                response.raise_for_status()
+                instruments = response.json()
+                if instruments:
+                    AngelRestClient._instrument_cache = instruments
+                    logger.info(f"Successfully fetched and cached {len(instruments)} instruments.")
+                    return instruments
+                else:
+                    logger.error("Instrument list fetched is empty.")
+                    return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching instrument list: {e.response.status_code} - {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching instrument list: {e}", exc_info=True)
+            return None
+
     def get_profile(self, refresh_token: str) -> dict | None:
         """Fetches user profile, including funds."""
         logger.info("Fetching profile from AngelOne...")
@@ -77,70 +106,4 @@ class AngelRestClient:
                 return None
         except Exception as e:
             logger.error(f"Error placing order: {e}", exc_info=True)
-            return None
-
-    def get_ltp(self, exchange: str, tradingsymbol: str, symboltoken: str) -> float | None:
-        """Fetches the Last Traded Price (LTP) for a given instrument."""
-        logger.info(f"Fetching LTP for {tradingsymbol}...")
-        try:
-            params = {
-                "exchange": exchange,
-                "tradingsymbol": tradingsymbol,
-                "symboltoken": symboltoken
-            }
-            ltp_data = self.smart_api.ltpData(exchange, tradingsymbol, symboltoken)
-            if ltp_data.get("status") and ltp_data.get("data"):
-                return ltp_data["data"]["ltp"]
-            else:
-                logger.error(f"Failed to fetch LTP for {tradingsymbol}: {ltp_data.get('message')}")
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching LTP for {tradingsymbol}: {e}", exc_info=True)
-            return None
-
-    def get_option_chain(self, underlying: str, expiry_date: str) -> dict | None:
-        """Fetches the option chain with Greeks for a given underlying and expiry."""
-        logger.info(f"Fetching option chain for {underlying} on {expiry_date}...")
-        try:
-            params = {
-                "name": underlying,
-                "expirydate": expiry_date
-            }
-            option_chain_data = self.smart_api.optionGreek(params)
-            if option_chain_data.get("status") and option_chain_data.get("data"):
-                return option_chain_data["data"]
-            else:
-                logger.error(f"Failed to fetch option chain for {underlying}: {option_chain_data.get('message')}")
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching option chain for {underlying}: {e}", exc_info=True)
-            return None
-
-    async def get_instrument_list(self) -> list | None:
-        """
-        Fetches the full list of tradable instruments from the AngelOne URL.
-        Caches the result in memory to avoid repeated downloads.
-        """
-        if AngelRestClient._instrument_cache:
-            logger.info("Returning cached instrument list.")
-            return AngelRestClient._instrument_cache
-
-        logger.info("Fetching instrument list from AngelOne...")
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(self.INSTRUMENT_LIST_URL)
-                response.raise_for_status()
-                instruments = response.json()
-                if instruments:
-                    AngelRestClient._instrument_cache = instruments
-                    logger.info(f"Successfully fetched and cached {len(instruments)} instruments.")
-                    return instruments
-                else:
-                    logger.error("Instrument list fetched is empty.")
-                    return None
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error fetching instrument list: {e.response.status_code} - {e.response.text}")
-            return None
-        except Exception as e:
-            logger.error(f"Error fetching instrument list: {e}", exc_info=True)
             return None

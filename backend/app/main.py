@@ -60,10 +60,7 @@ async def startup_event():
         # Initialize core services
         risk_manager = RiskManager(account_equity=equity)
         order_manager = OrderManager(connector=connector, risk_manager=risk_manager, instrument_manager=instrument_manager)
-        strategy = TradingStrategy(order_manager=order_manager,
-                                     risk_manager=risk_manager,
-                                     connector=connector,
-                                     instrument_manager=instrument_manager)
+        strategy = TradingStrategy(order_manager=order_manager, risk_manager=risk_manager, connector=connector, instrument_manager=instrument_manager)
 
         # Store services in app.state to make them accessible from API endpoints
         app.state.risk_manager = risk_manager
