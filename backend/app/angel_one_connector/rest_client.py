@@ -41,20 +41,6 @@ class AngelRestClient:
             logger.error(f"Error fetching instrument list: {e}", exc_info=True)
             return None
 
-    def get_candle_data(self, historic_params: dict) -> list | None:
-        """Fetches historical candle data."""
-        logger.info(f"Fetching candle data with params: {historic_params}")
-        try:
-            candle_data = self.smart_api.getCandleData(historic_params)
-            if candle_data.get("status") and candle_data.get("data"):
-                return candle_data["data"]
-            else:
-                logger.error(f"Failed to fetch candle data: {candle_data.get('message')}")
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching candle data: {e}", exc_info=True)
-            return None
-
     def get_profile(self, refresh_token: str) -> dict | None:
         """Fetches user profile, including funds."""
         logger.info("Fetching profile from AngelOne...")

@@ -1,8 +1,7 @@
 from datetime import datetime
 from app.core.logging import logger
-from app.services.angel_one import AngelOneConnector
+from app.angel_one_connector import AngelOneConnector
 from app.services.risk_manager import RiskManager
-from app.services.instrument_manager import InstrumentManager
 from app.db.session import database
 from app.models.trading import Order
 # from app.models.trading import Trade - will be used later
@@ -11,27 +10,21 @@ class OrderManager:
     """
     Manages the lifecycle of orders, from signal to execution.
     """
-    def __init__(self, connector: AngelOneConnector, risk_manager: RiskManager, instrument_manager: InstrumentManager):
+    def __init__(self, connector: AngelOneConnector, risk_manager: RiskManager):
         logger.info("Initializing Order Manager...")
         self.connector = connector
         self.risk_manager = risk_manager
-        self.instrument_manager = instrument_manager
         self.active_orders = {}  # Maps our DB order.id to broker_order_id
 
     async def create_market_order(self, signal: dict, position_size: int):
         """Creates and places a market order based on a signal."""
-        exchange = "NSE" # Should be configurable
-        token = self.instrument_manager.get_token(signal['symbol'], exchange)
-        if not token:
-            logger.error(f"Could not find token for symbol {signal['symbol']}. Order not placed.")
-            return
-
+        # This is a simplified order payload. A real one would need a symbol-to-token lookup.
         order_params = {
             "variety": "NORMAL",
             "tradingsymbol": signal['symbol'],
-            "symboltoken": token,
+            "symboltoken": "TOKEN_PLACEHOLDER",  # This needs a lookup mechanism
             "transactiontype": signal['side'],  # "BUY" or "SELL"
-            "exchange": exchange,
+            "exchange": "NSE",  # Should be configurable
             "ordertype": "MARKET",
             "producttype": "INTRADAY",
             "duration": "DAY",
