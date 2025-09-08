@@ -10,7 +10,7 @@ from app.services.order_manager import OrderManager
 from app.services.risk_manager import RiskManager
 from app.services.angel_one import AngelOneConnector
 from app.services.instrument_manager import InstrumentManager
-from app.services import options_helper
+from app.services import instrument_helper as ins_helper
 from app.db.session import database
 from app.models.trading import Position, Signal
 from sqlalchemy import select
@@ -207,12 +207,67 @@ class TradingStrategy:
                           latest['SUPERTd'] == -1)
 
             if is_bullish:
-                await self._execute_option_trade(underlying, 'bullish', latest)
+                if settings.options_strategy.trade_calls:
+                    await self._execute_option_trade(underlying, 'bullish', latest)
+                if settings.futures_strategy.enabled:
+                    await self._execute_futures_trade(underlying, 'bullish', latest)
             elif is_bearish:
-                await self._execute_option_trade(underlying, 'bearish', latest)
+                if settings.options_strategy.trade_puts:
+                    await self._execute_option_trade(underlying, 'bearish', latest)
+                if settings.futures_strategy.enabled:
+                    await self._execute_futures_trade(underlying, 'bearish', latest)
 
         except Exception as e:
             logger.error(f"Error checking conditions for {underlying}: {e}", exc_info=True)
+
+    async def _execute_futures_trade(self, underlying: str, signal_type: str, latest_candle: pd.Series):
+        """
+        Selects the appropriate futures contract and places the trade.
+        """
+        logger.info(f"Executing futures trade for {underlying} based on {signal_type} signal.")
+
+        # 1. Generate futures symbol
+        futures_symbol = ins_helper.generate_futures_symbol(underlying, settings.futures_strategy.contract_month)
+
+        # 2. Check for existing position
+        query = select(Position).where(Position.symbol == futures_symbol, Position.status == "OPEN")
+        existing_position = await database.fetch_one(query)
+        if existing_position:
+            logger.warning(f"Already have an open position for {futures_symbol}. Skipping new trade.")
+            return
+
+        # 3. Get live price and calculate SL/TP
+        futures_token = self.instrument_manager.get_token(futures_symbol, "NFO")
+        if not futures_token:
+            logger.error(f"Could not find token for futures contract {futures_symbol}. Cannot place trade.")
+            return
+
+        live_price = await self.connector.get_ltp("NFO", futures_symbol, futures_token)
+        if not live_price:
+            logger.error(f"Could not fetch live price for {futures_symbol}. Cannot place trade.")
+            return
+
+        atr = latest_candle[f'ATR_{settings.strategy.atr_period}']
+        sl_price = live_price - (atr * 1.5) if signal_type == 'bullish' else live_price + (atr * 1.5)
+        tp_price = live_price + (atr * 2.0) if signal_type == 'bullish' else live_price - (atr * 2.0)
+
+        # 4. Create signal for OrderManager
+        trade_signal = {
+            'symbol': futures_symbol,
+            'ts': datetime.utcnow(),
+            'side': 'BUY' if signal_type == 'bullish' else 'SELL',
+            'entry': live_price,
+            'sl': sl_price,
+            'tp': tp_price,
+            'reason': f'{underlying}_FUT_{signal_type.upper()}'
+        }
+
+        logger.info(f"Generated trade signal for futures: {trade_signal}")
+        query = Signal.__table__.insert().values(trade_signal)
+        trade_signal['id'] = await database.execute(query)
+
+        await self.order_manager.handle_signal(trade_signal)
+
 
     async def _execute_option_trade(self, underlying: str, signal_type: str, latest_candle: pd.Series):
         """
@@ -225,21 +280,21 @@ class TradingStrategy:
         spot_price = latest_candle['close']
 
         config = settings.underlying_instruments.get(underlying)
-        expiry = options_helper.get_current_weekly_expiry()
+        expiry = ins_helper.get_current_weekly_expiry()
 
         strike_to_trade = None
         if settings.options_strategy.strike_selection_method == "DELTA":
             target_delta = settings.options_strategy.target_delta
-            call_strike, put_strike = await options_helper.get_strike_by_delta(underlying, expiry, target_delta, self.connector)
+            call_strike, put_strike = await ins_helper.get_strike_by_delta(underlying, expiry, target_delta, self.connector)
             strike_to_trade = call_strike if option_type == "CE" else put_strike
         else: # Default to ATM
-            strike_to_trade = options_helper.get_atm_strike(spot_price, config.strike_interval)
+            strike_to_trade = ins_helper.get_atm_strike(spot_price, config.strike_interval)
 
         if not strike_to_trade:
             logger.error(f"Could not determine strike to trade for {underlying}. Skipping.")
             return
 
-        option_symbol = options_helper.generate_option_symbol(underlying, expiry, strike_to_trade, option_type)
+        option_symbol = ins_helper.generate_option_symbol(underlying, expiry, strike_to_trade, option_type)
 
         # 2. Check if we are already in a trade for this underlying
         query = select(Position).where(Position.symbol.like(f"{underlying}%"), Position.status == "OPEN")
