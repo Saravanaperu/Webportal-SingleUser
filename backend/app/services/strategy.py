@@ -250,18 +250,22 @@ class TradingStrategy:
         logger.info(f"Subscribed to tick data for {option_symbol}")
 
         # 4. Get the live price of the option to calculate SL/TP
-        # This part is still simplified. We need to wait for the first tick to get the premium.
-        # For now, we'll continue with the placeholder premium.
-        assumed_premium = 100 # Placeholder
-        sl_price = assumed_premium * 0.5 # 50% stop-loss
-        tp_price = assumed_premium * 2.0 # 100% take-profit
+        live_premium = await self.connector.get_ltp("NFO", option_symbol, option_token)
+
+        if not live_premium:
+            logger.error(f"Could not fetch live premium for {option_symbol}. Cannot place trade.")
+            return
+
+        sl_price = live_premium * (1 - settings.options_strategy.sl_percentage / 100)
+        tp_price = live_premium * (1 + settings.options_strategy.tp_percentage / 100)
 
         # 5. Create signal for OrderManager
         trade_signal = {
             'symbol': option_symbol,
+            'underlying': underlying,
             'ts': datetime.utcnow(),
             'side': 'BUY', # We are buying options
-            'entry': assumed_premium, # This would be the live premium
+            'entry': live_premium,
             'sl': sl_price,
             'tp': tp_price,
             'reason': f'{underlying}_{signal_type.upper()}'

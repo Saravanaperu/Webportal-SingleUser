@@ -103,3 +103,9 @@ class AngelOneConnector:
     def get_ws_client(self) -> AngelWsClient | None:
         """Returns the WebSocket client instance."""
         return self.ws_client
+
+    async def get_ltp(self, exchange: str, tradingsymbol: str, symboltoken: str) -> float | None:
+        """Fetches the LTP for a given instrument."""
+        if not self.rest_client:
+            return None
+        return await asyncio.to_thread(self.rest_client.get_ltp, exchange, tradingsymbol, symboltoken)

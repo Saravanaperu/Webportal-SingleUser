@@ -79,6 +79,25 @@ class AngelRestClient:
             logger.error(f"Error placing order: {e}", exc_info=True)
             return None
 
+    def get_ltp(self, exchange: str, tradingsymbol: str, symboltoken: str) -> float | None:
+        """Fetches the Last Traded Price (LTP) for a given instrument."""
+        logger.info(f"Fetching LTP for {tradingsymbol}...")
+        try:
+            params = {
+                "exchange": exchange,
+                "tradingsymbol": tradingsymbol,
+                "symboltoken": symboltoken
+            }
+            ltp_data = self.smart_api.ltpData(exchange, tradingsymbol, symboltoken)
+            if ltp_data.get("status") and ltp_data.get("data"):
+                return ltp_data["data"]["ltp"]
+            else:
+                logger.error(f"Failed to fetch LTP for {tradingsymbol}: {ltp_data.get('message')}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching LTP for {tradingsymbol}: {e}", exc_info=True)
+            return None
+
     async def get_instrument_list(self) -> list | None:
         """
         Fetches the full list of tradable instruments from the AngelOne URL.

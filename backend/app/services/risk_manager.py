@@ -11,6 +11,7 @@ class RiskManager:
 
         # Load risk settings from config
         self.risk_per_trade_percent = settings.risk.risk_per_trade_percent
+        self.max_risk_per_option_trade = settings.risk.max_risk_per_option_trade
         self.max_daily_loss_percent = settings.risk.max_daily_loss_percent
         self.max_daily_loss_value = self.equity * (self.max_daily_loss_percent / 100)
         self.consecutive_losses_stop = settings.risk.consecutive_losses_stop
@@ -47,15 +48,38 @@ class RiskManager:
         if self.consecutive_losses >= self.consecutive_losses_stop:
             self.stop_trading(f"Max consecutive loss limit of {self.consecutive_losses_stop} reached.")
 
-    def calculate_position_size(self, entry_price: float, stop_loss_price: float) -> int:
+    def calculate_position_size(self, entry_price: float, stop_loss_price: float, underlying: str = None) -> int:
         """
-        Calculates position size. For options, this is simplified to a fixed
-        number of lots. For equities, it's based on risk per trade.
+        Calculates position size based on risk parameters.
+        - For options (if underlying is provided), it's based on max monetary risk per trade.
+        - For equities, it's based on a percentage of total equity.
         """
-        # A simple way to distinguish options from equities is by the nature of the signal.
-        # For now, we'll assume any signal with a very high entry price is not an option
-        # and revert to the old logic. A more robust way would be to pass the instrument type.
-        if entry_price > 1000: # Assuming options premium are less than 1000
+        if underlying:
+            # Options position sizing
+            risk_per_share = abs(entry_price - stop_loss_price)
+            if risk_per_share <= 1e-9:
+                return 0
+
+            lot_size = settings.underlying_instruments.get(underlying, {}).get("lot_size")
+            if not lot_size:
+                logger.error(f"Lot size not found for underlying {underlying}. Cannot calculate position size.")
+                return 0
+
+            risk_per_lot = risk_per_share * lot_size
+            if risk_per_lot <= 0:
+                return 0
+
+            num_lots = int(self.max_risk_per_option_trade / risk_per_lot)
+
+            if num_lots == 0:
+                logger.warning(f"Calculated zero lots for {underlying}. Risk per lot ({risk_per_lot}) exceeds max risk per trade ({self.max_risk_per_option_trade}).")
+                return 0
+
+            position_size = num_lots * lot_size
+            logger.debug(f"Calculated options position size: {position_size} ({num_lots} lots) for {underlying}.")
+            return position_size
+        else:
+            # Equity position sizing
             risk_per_trade_value = self.equity * (self.risk_per_trade_percent / 100)
             risk_per_share = abs(entry_price - stop_loss_price)
 
@@ -65,14 +89,6 @@ class RiskManager:
             position_size = int(risk_per_trade_value / risk_per_share)
             logger.debug(f"Calculated equity position size: {position_size}")
             return position_size
-        else:
-            # For options, we'll use a fixed size of 1 lot for simplicity.
-            # The lot size itself is part of the instrument data, but we'll assume a quantity.
-            # Nifty lot size is 50, BankNifty is 15. We'll use a placeholder quantity of 1 for now.
-            # The actual quantity will be determined by the lot size of the instrument.
-            # For now, we'll return a quantity of 1 (which will be interpreted as 1 lot).
-            logger.debug("Using fixed lot size for options trade.")
-            return 1 # Placeholder for 1 lot
 
     def can_place_trade(self) -> bool:
         """Checks if the system is in a state that allows placing new trades."""
