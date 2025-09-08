@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+SQLAlchemy
+alembic
+databases[sqlite]
+Jinja2
+python-multipart
+websockets
+httpx
+pandas
+pandas-ta
+PyYAML
+loguru
+pyotp
+numpy
