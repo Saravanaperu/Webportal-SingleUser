@@ -11,7 +11,6 @@ class RiskManager:
 
         # Load risk settings from config
         self.risk_per_trade_percent = settings.risk.risk_per_trade_percent
-        self.max_risk_per_option_trade = settings.risk.max_risk_per_option_trade
         self.max_daily_loss_percent = settings.risk.max_daily_loss_percent
         self.max_daily_loss_value = self.equity * (self.max_daily_loss_percent / 100)
         self.consecutive_losses_stop = settings.risk.consecutive_losses_stop
@@ -30,14 +29,15 @@ class RiskManager:
             self.is_trading_stopped = True
             logger.critical(f"STOPPING TRADING. Reason: {reason}")
 
-    def record_trade(self, pnl: float):
-        """Records the P&L of a completed trade and checks risk limits."""
+    def update_pnl(self, pnl: float):
+        """Updates daily P&L and checks if any risk limits have been breached."""
         self.daily_pnl += pnl
         logger.info(f"Trade P&L: {pnl:.2f}, Daily P&L: {self.daily_pnl:.2f}")
 
         if pnl < 0:
             self.consecutive_losses += 1
         else:
+            # Reset on a winning trade
             self.consecutive_losses = 0
 
         logger.info(f"Consecutive losses: {self.consecutive_losses}")
@@ -48,47 +48,18 @@ class RiskManager:
         if self.consecutive_losses >= self.consecutive_losses_stop:
             self.stop_trading(f"Max consecutive loss limit of {self.consecutive_losses_stop} reached.")
 
-    def calculate_position_size(self, entry_price: float, stop_loss_price: float, underlying: str = None) -> int:
-        """
-        Calculates position size based on risk parameters.
-        - For options (if underlying is provided), it's based on max monetary risk per trade.
-        - For equities, it's based on a percentage of total equity.
-        """
-        if underlying:
-            # Options position sizing
-            risk_per_share = abs(entry_price - stop_loss_price)
-            if risk_per_share <= 1e-9:
-                return 0
+    def calculate_position_size(self, entry_price: float, stop_loss_price: float) -> int:
+        """Calculates position size based on the risk per trade percentage."""
+        risk_per_trade_value = self.equity * (self.risk_per_trade_percent / 100)
+        risk_per_share = abs(entry_price - stop_loss_price)
 
-            lot_size = settings.underlying_instruments.get(underlying, {}).get("lot_size")
-            if not lot_size:
-                logger.error(f"Lot size not found for underlying {underlying}. Cannot calculate position size.")
-                return 0
+        if risk_per_share <= 1e-9: # Avoid division by zero
+            logger.warning("Risk per share is zero. Cannot calculate position size.")
+            return 0
 
-            risk_per_lot = risk_per_share * lot_size
-            if risk_per_lot <= 0:
-                return 0
-
-            num_lots = int(self.max_risk_per_option_trade / risk_per_lot)
-
-            if num_lots == 0:
-                logger.warning(f"Calculated zero lots for {underlying}. Risk per lot ({risk_per_lot}) exceeds max risk per trade ({self.max_risk_per_option_trade}).")
-                return 0
-
-            position_size = num_lots * lot_size
-            logger.debug(f"Calculated options position size: {position_size} ({num_lots} lots) for {underlying}.")
-            return position_size
-        else:
-            # Equity position sizing
-            risk_per_trade_value = self.equity * (self.risk_per_trade_percent / 100)
-            risk_per_share = abs(entry_price - stop_loss_price)
-
-            if risk_per_share <= 1e-9:
-                return 0
-
-            position_size = int(risk_per_trade_value / risk_per_share)
-            logger.debug(f"Calculated equity position size: {position_size}")
-            return position_size
+        position_size = int(risk_per_trade_value / risk_per_share)
+        logger.debug(f"Calculated position size: {position_size} for entry={entry_price}, sl={stop_loss_price}")
+        return position_size
 
     def can_place_trade(self) -> bool:
         """Checks if the system is in a state that allows placing new trades."""

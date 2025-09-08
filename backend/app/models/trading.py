@@ -16,7 +16,6 @@ class Signal(Base):
     __tablename__ = "signals"
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, index=True)
-    underlying = Column(String, index=True, nullable=True)
     ts = Column(DateTime)
     side = Column(String) # 'BUY' or 'SELL'
     entry = Column(Float)
@@ -47,17 +46,8 @@ class Trade(Base):
 class Position(Base):
     __tablename__ = "positions"
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True)
-    underlying = Column(String, index=True)
-    side = Column(String) # 'BUY' or 'SELL'
+    symbol = Column(String, unique=True, index=True)
     qty = Column(Integer)
     avg_price = Column(Float)
-    sl = Column(Float)
-    tp = Column(Float)
-    trailing_sl = Column(Float, nullable=True)
-    highest_price_seen = Column(Float, nullable=True)
-    status = Column(String, default="OPEN") # 'OPEN' or 'CLOSED'
     pnl = Column(Float, default=0.0)
-    live_pnl = Column(Float, default=0.0)
-    entry_ts = Column(DateTime)
-    exit_ts = Column(DateTime, nullable=True)
+    ts = Column(DateTime) # Last updated timestamp

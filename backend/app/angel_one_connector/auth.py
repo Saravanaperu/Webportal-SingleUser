@@ -42,31 +42,6 @@ class AngelAuth:
             logger.error(f"An unexpected error occurred during login: {e}", exc_info=True)
             return None
 
-    def refresh_session(self, refresh_token: str) -> str | None:
-        """
-        Refreshes the session using the refresh token.
-        """
-        logger.info("Refreshing AngelOne session...")
-        try:
-            # The smart_api object should be instantiated for this call.
-            # The generateToken method refreshes the token and updates it internally.
-            response = self.smart_api.generateToken(refresh_token)
-
-            if response.get("status") and response.get("data"):
-                new_jwt_token = response["data"]["jwtToken"]
-                # Update the internal state of the smart_api object with the new token
-                self.smart_api.set_access_token(new_jwt_token)
-                logger.info("AngelOne session refreshed successfully.")
-                return new_jwt_token
-            else:
-                error_message = response.get("message", "Unknown error during token refresh.")
-                logger.error(f"Failed to refresh AngelOne session: {error_message}")
-                return None
-
-        except Exception as e:
-            logger.error(f"An error occurred during session refresh: {e}", exc_info=True)
-            return None
-
     def get_smart_api_instance(self) -> SmartConnect:
         """Returns the authenticated SmartConnect instance."""
         return self.smart_api
