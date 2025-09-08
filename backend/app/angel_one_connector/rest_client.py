@@ -6,8 +6,40 @@ class AngelRestClient:
     """
     REST client for interacting with the AngelOne API using the smartapi-python library.
     """
+    INSTRUMENT_LIST_URL = "https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json"
+    _instrument_cache = None
+
     def __init__(self, smart_api: SmartConnect):
         self.smart_api = smart_api
+
+    async def get_instrument_list(self) -> list | None:
+        """
+        Fetches the full list of tradable instruments from the AngelOne URL.
+        Caches the result in memory to avoid repeated downloads.
+        """
+        if AngelRestClient._instrument_cache:
+            logger.info("Returning cached instrument list.")
+            return AngelRestClient._instrument_cache
+
+        logger.info("Fetching instrument list from AngelOne...")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self.INSTRUMENT_LIST_URL)
+                response.raise_for_status()
+                instruments = response.json()
+                if instruments:
+                    AngelRestClient._instrument_cache = instruments
+                    logger.info(f"Successfully fetched and cached {len(instruments)} instruments.")
+                    return instruments
+                else:
+                    logger.error("Instrument list fetched is empty.")
+                    return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching instrument list: {e.response.status_code} - {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching instrument list: {e}", exc_info=True)
+            return None
 
     def get_profile(self, refresh_token: str) -> dict | None:
         """Fetches user profile, including funds."""

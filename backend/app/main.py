@@ -11,6 +11,7 @@ from app.angel_one_connector import AngelOneConnector
 from app.services.risk_manager import RiskManager
 from app.services.order_manager import OrderManager
 from app.services.strategy import TradingStrategy
+from app.services.instrument_manager import instrument_manager
 
 app = FastAPI(title="Automated Trading Portal")
 
@@ -46,6 +47,10 @@ async def startup_event():
             logger.critical("Could not connect to AngelOne broker. Strategy will not start.")
             return
 
+        # Load instrument list
+        await instrument_manager.load_instruments(connector.get_rest_client())
+        app.state.instrument_manager = instrument_manager
+
         # Fetch initial account details to bootstrap the Risk Manager
         account_details = await connector.get_account_details()
         equity = account_details.get('balance', 100000.0) if account_details else 100000.0
@@ -54,7 +59,7 @@ async def startup_event():
 
         # Initialize core services
         risk_manager = RiskManager(account_equity=equity)
-        order_manager = OrderManager(connector=connector, risk_manager=risk_manager)
+        order_manager = OrderManager(connector=connector, risk_manager=risk_manager, instrument_manager=instrument_manager)
         strategy = TradingStrategy(order_manager=order_manager, risk_manager=risk_manager)
 
         # Store services in app.state to make them accessible from API endpoints
