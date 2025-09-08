@@ -83,23 +83,40 @@ The application is designed with a clean, modular architecture:
 
 ---
 
-## ⚠️ CRITICAL: Your Implementation Tasks
+## ✅ Project Status: Live Connector Implemented
 
-This project provides a complete and robust framework, but for your security and because I cannot access the live API, the final broker-specific implementation is left for you. The application currently runs in a fully simulated mode.
+The core AngelOne broker connector has been fully implemented using the `smartapi-python` library. The application can now authenticate, place orders, and fetch live account data.
 
-To connect to the live market, you **must** complete the following:
+The following critical tasks have been addressed:
+-   **Broker Connector**: The placeholder logic in `backend/app/angel_one_connector/` has been replaced with a full implementation.
+-   **Symbol-to-Token Mapping**: The system now automatically fetches the AngelOne instrument master list and maps trading symbols to the required tokens for placing orders.
 
-1.  **Implement the Broker Connector**:
-    -   **Location**: `backend/app/angel_one_connector/`
-    -   **Task**: Replace the placeholder logic in `auth.py`, `rest_client.py`, and `ws_client.py` with the actual API calls based on the official AngelOne API documentation. This includes handling the login flow, REST API requests, and parsing the WebSocket data stream.
+---
+
+## ⚠️ PENDING: Your Next Implementation Tasks
+
+To make the strategy fully functional, two key pieces of logic are still required:
+
+1.  **Integrate Live Market Data**:
+    -   **Location**: `backend/app/services/strategy.py`
+    -   **Task**: The `get_candle_data` function currently generates *dummy data*. You need to replace this with logic that consumes the live market data from the WebSocket.
+    -   **Steps**:
+        -   In `TradingStrategy`, get the `ws_client` from the `AngelOneConnector`.
+        -   Use the `instrument_manager` to get the tokens for the symbols you want to trade.
+        -   Connect to the WebSocket and subscribe to the required instruments.
+        -   Implement logic to process the incoming ticks from `ws_client.receive_data()` and aggregate them into 1-minute candles to feed into the `calculate_indicators` function.
 
 2.  **Implement Advanced Exit Logic**:
     -   **Location**: `backend/app/services/strategy.py`
     -   **Function**: `manage_active_trades()`
-    -   **Task**: This function is a placeholder. You need to implement your logic for trailing stop-losses and time-based exits here. This will involve fetching live data for your open positions and creating the appropriate exit orders.
-
-3.  **Implement Symbol-to-Token Mapping**:
-    -   **Task**: In `order_manager.py` and `ws_client.py`, you will see placeholders for `symboltoken`. You need to implement a mechanism to fetch the instrument list from AngelOne and map symbols like `"NIFTYBEES-EQ"` to their required numerical tokens for API calls.
+    -   **Task**: This function is a placeholder. You need to implement your logic for trailing stop-losses and time-based exits here.
+    -   **Steps**:
+        -   Query the database for open positions.
+        -   Fetch live price data for those positions (using the WebSocket stream).
+        -   For each position, check if its stop-loss or take-profit has been hit.
+        -   Implement trailing stop-loss logic.
+        -   Implement the time-based exit (e.g., close all trades 5 minutes before market close).
+        -   Create the appropriate exit orders using the `OrderManager`.
 
 ---
 
