@@ -10,6 +10,9 @@ from app.services.order_manager import OrderManager
 from app.services.risk_manager import RiskManager
 from app.services.angel_one import AngelOneConnector
 from app.services.instrument_manager import InstrumentManager
+from app.db.session import database
+from app.models.trading import Position
+from sqlalchemy import select
 
 class TradingStrategy:
     """
@@ -26,6 +29,7 @@ class TradingStrategy:
         self.connector = connector
         self.instrument_manager = instrument_manager
         self.ws_client = self.connector.get_ws_client()
+        self.order_ws_client = self.connector.get_order_ws_client()
 
         self.instruments_to_trade = settings.strategy.instruments
         self.is_running = False
@@ -74,12 +78,29 @@ class TradingStrategy:
 
         # 2. Connect and subscribe
         try:
-            await self.ws_client.connect()
+            # Connect to both market data and order update WebSockets
+            await asyncio.gather(
+                self.ws_client.connect(),
+                self.order_ws_client.connect()
+            )
             await self.ws_client.subscribe_to_instruments(subscription_tokens)
             logger.info(f"Successfully subscribed to tokens: {subscription_tokens}")
         except Exception as e:
             logger.critical(f"Failed to connect or subscribe to WebSocket: {e}", exc_info=True)
             self.stop()
+
+    async def _process_order_updates(self):
+        """
+        Listens for incoming order updates from the WebSocket and processes them.
+        """
+        logger.info("Starting order update processing loop...")
+        try:
+            async for message in self.order_ws_client.receive_data():
+                await self.order_manager.handle_order_update(message)
+        except Exception as e:
+            logger.error(f"Error in order update processing loop: {e}", exc_info=True)
+            self.stop()
+        logger.warning("Order update processing loop has stopped.")
 
     async def _process_market_data(self):
         """
@@ -208,25 +229,71 @@ class TradingStrategy:
 
     async def manage_active_trades(self):
         """
-        Manages exits for active trades (TP, SL, TSL, time-based).
-        This is a placeholder for a very complex piece of logic.
+        Manages exits for active trades based on SL/TP, trailing SL, and time-based exits.
         """
-        # This would involve:
-        # 1. Querying the database for open positions.
-        # 2. Getting live price data for those positions.
-        # 3. Checking each position against its SL and TP.
-        # 4. Implementing the trailing stop-loss logic.
-        # 5. Implementing the 5-minute auto-close logic.
-        # 6. Creating exit orders via the OrderManager.
-        pass
+        query = select(Position).where(Position.status == "OPEN")
+        open_positions = await database.fetch_all(query)
+
+        now_time = datetime.now().time()
+        eod_exit_time = time.fromisoformat(settings.trading.hours['end_of_day_exit'])
+
+        for pos in open_positions:
+            # 1. Time-based exit
+            if now_time >= eod_exit_time:
+                logger.info(f"End-of-day exit for {pos.symbol}. Closing position.")
+                await self.order_manager.create_exit_order(pos, "EOD_EXIT")
+                continue
+
+            live_candles = await self.get_candle_data(pos.symbol)
+            if live_candles.empty:
+                continue
+
+            current_price = live_candles.iloc[-1]['close']
+
+            # 2. Trailing Stop-Loss Logic
+            trailing_sl = pos.trailing_sl
+            if settings.strategy.trailing_sl.is_enabled:
+                if pos.side == 'BUY':
+                    new_highest = max(pos.highest_price_seen or pos.avg_price, current_price)
+                    new_tsl = new_highest * (1 - settings.strategy.trailing_sl.percentage / 100)
+                    if new_tsl > (trailing_sl or pos.sl):
+                        trailing_sl = new_tsl
+                        # Update position with new TSL and highest price
+                        update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_highest)
+                        await database.execute(update_q)
+                elif pos.side == 'SELL':
+                    new_lowest = min(pos.highest_price_seen or pos.avg_price, current_price) # Note: field is highest_price_seen, but used for lowest here
+                    new_tsl = new_lowest * (1 + settings.strategy.trailing_sl.percentage / 100)
+                    if new_tsl < (trailing_sl or pos.sl):
+                        trailing_sl = new_tsl
+                        update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_lowest)
+                        await database.execute(update_q)
+
+            # 3. Check for SL/TP Exits
+            stop_loss_price = trailing_sl or pos.sl
+            if pos.side == 'BUY':
+                if current_price <= stop_loss_price:
+                    logger.info(f"Stop-loss hit for BUY position on {pos.symbol}. Exiting.")
+                    await self.order_manager.create_exit_order(pos, "STOPLOSS_HIT")
+                elif current_price >= pos.tp:
+                    logger.info(f"Take-profit hit for BUY position on {pos.symbol}. Exiting.")
+                    await self.order_manager.create_exit_order(pos, "TAKEPROFIT_HIT")
+            elif pos.side == 'SELL':
+                if current_price >= stop_loss_price:
+                    logger.info(f"Stop-loss hit for SELL position on {pos.symbol}. Exiting.")
+                    await self.order_manager.create_exit_order(pos, "STOPLOSS_HIT")
+                elif current_price <= pos.tp:
+                    logger.info(f"Take-profit hit for SELL position on {pos.symbol}. Exiting.")
+                    await self.order_manager.create_exit_order(pos, "TAKEPROFIT_HIT")
 
     async def run(self):
         """The main loop of the trading strategy."""
         await self._initialize_data_stream()
 
         if self.is_running:
-            # Start the market data processing in the background
+            # Start the market data and order update processing in the background
             asyncio.create_task(self._process_market_data())
+            asyncio.create_task(self._process_order_updates())
 
         while True:
             await asyncio.sleep(1) # Small sleep to prevent tight loop if stopped
