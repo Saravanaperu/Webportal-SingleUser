@@ -13,10 +13,12 @@ class TradingStrategy:
     """
     Implements the core scalping strategy, generating signals based on technical indicators.
     """
-    def __init__(self, order_manager: OrderManager, risk_manager: RiskManager):
+    def __init__(self, order_manager: OrderManager, risk_manager: RiskManager, connector: AngelOneConnector, instrument_manager: InstrumentManager):
         logger.info("Initializing Trading Strategy...")
         self.order_manager = order_manager
         self.risk_manager = risk_manager
+        self.connector = connector
+        self.instrument_manager = instrument_manager
         self.instruments = settings.strategy.instruments
         self.is_running = False
         self.active_trades = {}  # Placeholder for managing exits

@@ -10,10 +10,11 @@ class OrderManager:
     """
     Manages the lifecycle of orders, from signal to execution.
     """
-    def __init__(self, connector: AngelOneConnector, risk_manager: RiskManager):
+    def __init__(self, connector: AngelOneConnector, risk_manager: RiskManager, instrument_manager: InstrumentManager):
         logger.info("Initializing Order Manager...")
         self.connector = connector
         self.risk_manager = risk_manager
+        self.instrument_manager = instrument_manager
         self.active_orders = {}  # Maps our DB order.id to broker_order_id
 
     async def create_market_order(self, signal: dict, position_size: int):
