@@ -82,7 +82,8 @@ class OrderManager:
         # Calculate position size using the risk manager
         position_size = self.risk_manager.calculate_position_size(
             entry_price=signal['entry'],
-            stop_loss_price=signal['sl']
+            stop_loss_price=signal['sl'],
+            underlying=signal.get('underlying')
         )
 
         if position_size <= 0:

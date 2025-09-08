@@ -262,6 +262,7 @@ class TradingStrategy:
         # 5. Create signal for OrderManager
         trade_signal = {
             'symbol': option_symbol,
+            'underlying': underlying,
             'ts': datetime.utcnow(),
             'side': 'BUY', # We are buying options
             'entry': live_premium,

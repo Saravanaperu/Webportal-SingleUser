@@ -24,13 +24,14 @@ options_strategy:
 
 # Underlying index tokens (some may not be in the instrument master file)
 underlying_instruments:
-  "NIFTY": { "symbol": "Nifty 50", "token": "99926000", "exchange": "NSE", "strike_interval": 50 }
-  "BANKNIFTY": { "symbol": "Nifty Bank", "token": "99926009", "exchange": "NSE", "strike_interval": 100 }
-  "SENSEX": { "symbol": "SENSEX", "token": "99926001", "exchange": "BSE", "strike_interval": 100 }
+  "NIFTY": { "symbol": "Nifty 50", "token": "99926000", "exchange": "NSE", "strike_interval": 50, "lot_size": 75 }
+  "BANKNIFTY": { "symbol": "Nifty Bank", "token": "99926009", "exchange": "NSE", "strike_interval": 100, "lot_size": 30 }
+  "SENSEX": { "symbol": "SENSEX", "token": "99926001", "exchange": "BSE", "strike_interval": 100, "lot_size": 20 }
 
 # Risk Management Configuration
 risk:
-  risk_per_trade_percent: 0.25
+  risk_per_trade_percent: 0.25 # For equity trades
+  max_risk_per_option_trade: 2000 # Max loss in currency for a single options trade
   max_daily_loss_percent: 3.0
   consecutive_losses_stop: 3
 
