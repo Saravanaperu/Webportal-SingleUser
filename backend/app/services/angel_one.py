@@ -109,3 +109,9 @@ class AngelOneConnector:
         if not self.rest_client:
             return None
         return await asyncio.to_thread(self.rest_client.get_ltp, exchange, tradingsymbol, symboltoken)
+
+    async def get_option_chain(self, underlying: str, expiry_date: str) -> dict | None:
+        """Fetches the option chain for a given underlying and expiry."""
+        if not self.rest_client:
+            return None
+        return await asyncio.to_thread(self.rest_client.get_option_chain, underlying, expiry_date)

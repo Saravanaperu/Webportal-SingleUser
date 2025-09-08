@@ -207,6 +207,7 @@ class OrderManager:
                 # This is an entry order, create a new position
                 position_query = Position.__table__.insert().values(
                     symbol=order.symbol,
+                    underlying=signal['underlying'],
                     side=order.side,
                     qty=fill_qty,
                     avg_price=fill_price,

@@ -8,7 +8,7 @@ strategy:
   atr_period: 14
   trailing_sl:
     is_enabled: true
-    percentage: 0.5 # 0.5%
+    atr_multiplier: 1.5 # Trail by 1.5x ATR
 
 # Options Strategy Configuration
 options_strategy:
@@ -21,6 +21,8 @@ options_strategy:
   trade_puts: true
   sl_percentage: 50.0
   tp_percentage: 100.0
+  strike_selection_method: "DELTA" # ATM or DELTA
+  target_delta: 0.40
 
 # Underlying index tokens (some may not be in the instrument master file)
 underlying_instruments:
