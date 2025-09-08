@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Automated Trading Portal</h1>
+        <div id="controls">
+            <button id="strategy-toggle">Start Strategy</button>
+            <button id="kill-switch">EMERGENCY STOP</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="overview">
+            <div>
+                <h2>Account Overview</h2>
+                <div id="account-details">
+                    <p>Balance: <span id="balance">--</span></p>
+                    <p>Margin: <span id="margin">--</span></p>
+                </div>
+            </div>
+            <div>
+                <h2>Daily Stats</h2>
+                <div id="daily-stats">
+                    <p>Realized P&L: <span id="realized-pnl">--</span></p>
+                    <p>Status: <span id="trading-status">RUNNING</span></p>
+                </div>
+            </div>
+        </section>
+
+        <section id="chart-section">
+            <h2>Market Chart (Simulated)</h2>
+            <div id="trading-chart"></div>
+        </section>
+
+        <section id="positions-and-orders">
+            <div id="positions">
+                <h2>Open Positions</h2>
+                <table>
+                    <thead>
+                        <tr><th>Symbol</th><th>Qty</th><th>Avg. Price</th><th>LTP</th><th>P&L</th></tr>
+                    </thead>
+                    <tbody id="positions-table-body">
+                        <!-- JS will populate this -->
+                    </tbody>
+                </table>
+            </div>
+            <div id="orders">
+                <h2>Today's Orders</h2>
+                <table>
+                    <thead>
+                        <tr><th>ID</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Timestamp</th></tr>
+                    </thead>
+                    <tbody id="orders-table-body">
+                        <!-- JS will populate this -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Element references
+            const balanceEl = document.getElementById('balance');
+            const marginEl = document.getElementById('margin');
+            const realizedPnlEl = document.getElementById('realized-pnl');
+            const tradingStatusEl = document.getElementById('trading-status');
+            const ordersTableBody = document.getElementById('orders-table-body');
+            const strategyToggleBtn = document.getElementById('strategy-toggle');
+            const killSwitchBtn = document.getElementById('kill-switch');
+
+            let isStrategyRunning = false; // Initial assumption
+
+            // --- Chart Setup ---
+            const chartContainer = document.getElementById('trading-chart');
+            const chart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.clientWidth, height: 400,
+                layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+                timeScale: { timeVisible: true, secondsVisible: true }
+            });
+            const candleSeries = chart.addCandlestickSeries();
+            let lastCandleTime = null;
+
+            // --- API & WebSockets ---
+            async function fetchInitialData() {
+                try {
+                    const [accRes, statsRes, ordersRes] = await Promise.all([
+                        fetch('/api/account'), fetch('/api/stats'), fetch('/api/orders')
+                    ]);
+                    const accData = await accRes.json();
+                    const statsData = await statsRes.json();
+                    const ordersData = await ordersRes.json();
+
+                    if (accData && !accData.error) {
+                        balanceEl.textContent = `$${Number(accData.balance).toFixed(2)}`;
+                        marginEl.textContent = `$${Number(accData.margin).toFixed(2)}`;
+                    }
+                    if (statsData && !statsData.error) {
+                        updateStats(statsData);
+                    }
+                    ordersTableBody.innerHTML = '';
+                    ordersData.forEach(order => addOrderRow(order));
+                } catch (err) {
+                    console.error("Failed to fetch initial data:", err);
+                }
+            }
+
+            function connectWebsockets() {
+                const marketWs = new WebSocket(`ws://${window.location.host}/ws/market`);
+                marketWs.onmessage = (event) => {
+                    const tick = JSON.parse(event.data);
+                    const candleTime = Math.floor(new Date(tick.ts).getTime() / 60000) * 60; // Group by minute
+                    const candle = { time: candleTime, open: tick.price, high: tick.price, low: tick.price, close: tick.price };
+                    candleSeries.update(candle);
+                };
+                marketWs.onerror = (err) => console.error('Market WS Error:', err);
+
+                const orderWs = new WebSocket(`ws://${window.location.host}/ws/orders`);
+                orderWs.onmessage = (event) => {
+                    const order = JSON.parse(event.data);
+                    addOrderRow(order, true);
+                };
+                orderWs.onerror = (err) => console.error('Order WS Error:', err);
+            }
+
+            // --- UI Updates ---
+            function updateStats(stats) {
+                const pnl = Number(stats.pnl).toFixed(2);
+                realizedPnlEl.textContent = `$${pnl}`;
+                realizedPnlEl.className = stats.pnl >= 0 ? 'positive' : 'negative';
+                tradingStatusEl.textContent = stats.is_trading_stopped ? 'STOPPED' : 'RUNNING';
+                tradingStatusEl.className = stats.is_trading_stopped ? 'negative' : 'positive';
+                if(stats.is_trading_stopped){
+                    disableControls();
+                }
+            }
+
+            function addOrderRow(order, prepend = false) {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${order.id}</td><td>${order.symbol}</td><td>${order.side}</td><td>${order.qty}</td><td>${order.status}</td><td>${new Date(order.ts).toLocaleTimeString()}</td>`;
+                if (prepend) ordersTableBody.insertBefore(row, ordersTableBody.firstChild);
+                else ordersTableBody.appendChild(row);
+            }
+
+            function disableControls(){
+                strategyToggleBtn.textContent = 'Strategy Halted';
+                strategyToggleBtn.disabled = true;
+                killSwitchBtn.disabled = true;
+            }
+
+            // --- Event Listeners ---
+            strategyToggleBtn.addEventListener('click', async () => {
+                const action = isStrategyRunning ? 'stop' : 'start';
+                const response = await fetch('/api/strategy/control', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+                const data = await response.json();
+                if (data.status.includes('started')) isStrategyRunning = true;
+                if (data.status.includes('stopped')) isStrategyRunning = false;
+                strategyToggleBtn.textContent = isStrategyRunning ? 'Stop Strategy' : 'Start Strategy';
+                strategyToggleBtn.style.backgroundColor = isStrategyRunning ? '#f39c12' : '#2ecc71';
+            });
+
+            killSwitchBtn.addEventListener('click', async () => {
+                if (confirm('Are you sure you want to activate the EMERGENCY KILL SWITCH?')) {
+                    await fetch('/api/strategy/control', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'kill' })
+                    });
+                    disableControls();
+                    alert('Kill switch activated. Trading has been halted.');
+                }
+            });
+
+            // --- Init ---
+            fetchInitialData();
+            connectWebsockets();
+            setInterval(fetchInitialData, 10000); // Periodically refresh REST data
+        });
+    </script>
+</body>
+</html>
