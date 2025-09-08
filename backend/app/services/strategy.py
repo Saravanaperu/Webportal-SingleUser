@@ -10,6 +10,7 @@ from app.services.order_manager import OrderManager
 from app.services.risk_manager import RiskManager
 from app.services.angel_one import AngelOneConnector
 from app.services.instrument_manager import InstrumentManager
+from app.services import options_helper
 from app.db.session import database
 from app.models.trading import Position
 from sqlalchemy import select
@@ -23,7 +24,7 @@ class TradingStrategy:
                  risk_manager: RiskManager,
                  connector: AngelOneConnector,
                  instrument_manager: InstrumentManager):
-        logger.info("Initializing Trading Strategy...")
+        logger.info("Initializing Trading Strategy for Options...")
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.connector = connector
@@ -31,14 +32,13 @@ class TradingStrategy:
         self.ws_client = self.connector.get_ws_client()
         self.order_ws_client = self.connector.get_order_ws_client()
 
-        self.instruments_to_trade = settings.strategy.instruments
+        self.underlyings_to_trade = settings.options_strategy.underlyings
         self.is_running = False
-        self.active_trades = {}
 
         # Data structures for live data
         self.token_to_symbol_map = {}
-        self.live_ticks = {symbol: pd.DataFrame(columns=['timestamp', 'price', 'volume']) for symbol in self.instruments_to_trade}
-        self.candles = {symbol: pd.DataFrame() for symbol in self.instruments_to_trade}
+        self.live_ticks = {} # Will be populated dynamically
+        self.candles = {} # Will be populated dynamically
 
     def start(self):
         """Starts the strategy loop."""
@@ -52,39 +52,36 @@ class TradingStrategy:
 
     async def _initialize_data_stream(self):
         """
-        Initializes the WebSocket connection and subscribes to instrument feeds.
+        Initializes the WebSocket connection and subscribes to the underlying indices.
         """
-        logger.info("Initializing data stream...")
+        logger.info("Initializing data stream for underlying indices...")
         if not self.ws_client:
             logger.error("WebSocket client is not available. Cannot initialize data stream.")
             return
 
-        # 1. Get tokens for instruments
+        # 1. Get tokens for underlying indices
         subscription_tokens = []
-        for symbol in self.instruments_to_trade:
-            # Assuming NSE for now, should be configurable
-            token = self.instrument_manager.get_token(symbol, "NSE")
-            if token:
-                # The format required by the smartapi-python library
-                subscription_tokens.append({"exchangeType": 1, "tokens": [token]})
-                self.token_to_symbol_map[token] = symbol
+        for underlying in self.underlyings_to_trade:
+            config = settings.underlying_instruments.get(underlying)
+            if config and config.token:
+                exchange_type = 1 if config.exchange == "NSE" else 2 # 1 for NSE, 2 for BSE. Simplified.
+                subscription_tokens.append({"exchangeType": exchange_type, "tokens": [config.token]})
+                self.token_to_symbol_map[config.token] = underlying
+                self.live_ticks[underlying] = pd.DataFrame(columns=['timestamp', 'price', 'volume'])
+                self.candles[underlying] = pd.DataFrame()
             else:
-                logger.error(f"Could not find token for {symbol}. It will not be traded.")
+                logger.error(f"Could not find token for underlying {underlying} in config. It will not be traded.")
 
         if not subscription_tokens:
-            logger.error("No valid tokens found for subscription. Stopping strategy.")
+            logger.error("No valid tokens found for underlying subscriptions. Stopping strategy.")
             self.stop()
             return
 
         # 2. Connect and subscribe
         try:
-            # Connect to both market data and order update WebSockets
-            await asyncio.gather(
-                self.ws_client.connect(),
-                self.order_ws_client.connect()
-            )
+            await asyncio.gather(self.ws_client.connect(), self.order_ws_client.connect())
             await self.ws_client.subscribe_to_instruments(subscription_tokens)
-            logger.info(f"Successfully subscribed to tokens: {subscription_tokens}")
+            logger.info(f"Successfully subscribed to underlying indices: {subscription_tokens}")
         except Exception as e:
             logger.critical(f"Failed to connect or subscribe to WebSocket: {e}", exc_info=True)
             self.stop()
@@ -180,52 +177,98 @@ class TradingStrategy:
         df.ta.atr(length=settings.strategy.atr_period, append=True, col_names=(f'ATR_{settings.strategy.atr_period}',))
         return df
 
-    async def check_entry_conditions(self, symbol: str):
-        """Fetches data, calculates indicators, and checks for trade entry signals."""
+    async def check_underlying_conditions(self, underlying: str):
+        """
+        Fetches data for the underlying index, calculates indicators, and
+        generates a bullish or bearish signal.
+        """
         try:
-            df = await self.get_candle_data(symbol)
-            df = self.calculate_indicators(df)
-
-            if df.empty:
+            df = await self.get_candle_data(underlying)
+            if df.empty or len(df) < settings.strategy.ema_long:
+                logger.debug(f"Not enough candle data for {underlying} to generate signals.")
                 return
 
+            df = self.calculate_indicators(df)
             latest = df.iloc[-1]
-            price = latest['close']
-            atr = latest[f'ATR_{settings.strategy.atr_period}']
 
             # Ensure indicators are not NaN
-            required_cols = [f'EMA_{settings.strategy.ema_short}', f'EMA_{settings.strategy.ema_long}', 'VWAP', 'SUPERTd', f'ATR_{settings.strategy.atr_period}']
+            required_cols = [f'EMA_{settings.strategy.ema_short}', f'EMA_{settings.strategy.ema_long}', 'VWAP', 'SUPERTd']
             if latest[required_cols].hasnans:
-                logger.debug(f"Indicators not ready for {symbol}. Skipping.")
+                logger.debug(f"Indicators not ready for {underlying}. Skipping.")
                 return
 
             # Entry Conditions
-            is_buy_signal = (latest[f'EMA_{settings.strategy.ema_short}'] > latest[f'EMA_{settings.strategy.ema_long}'] and
-                             price > latest['VWAP'] and
-                             latest['SUPERTd'] == 1) # 1 for uptrend
+            is_bullish = (latest[f'EMA_{settings.strategy.ema_short}'] > latest[f'EMA_{settings.strategy.ema_long}'] and
+                          latest['close'] > latest['VWAP'] and
+                          latest['SUPERTd'] == 1)
 
-            is_sell_signal = (latest[f'EMA_{settings.strategy.ema_short}'] < latest[f'EMA_{settings.strategy.ema_long}'] and
-                              price < latest['VWAP'] and
-                              latest['SUPERTd'] == -1) # -1 for downtrend
+            is_bearish = (latest[f'EMA_{settings.strategy.ema_short}'] < latest[f'EMA_{settings.strategy.ema_long}'] and
+                          latest['close'] < latest['VWAP'] and
+                          latest['SUPERTd'] == -1)
 
-            if is_buy_signal:
-                signal = {
-                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'BUY',
-                    'entry': price, 'sl': price - (1 * atr), 'tp': price + (0.6 * atr),
-                    'reason': 'EMA_VWAP_ST_BUY'
-                }
-                logger.info(f"BUY Signal generated: {signal}")
-                await self.order_manager.handle_signal(signal)
-            elif is_sell_signal:
-                signal = {
-                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'SELL',
-                    'entry': price, 'sl': price + (1 * atr), 'tp': price - (0.6 * atr),
-                    'reason': 'EMA_VWAP_ST_SELL'
-                }
-                logger.info(f"SELL Signal generated: {signal}")
-                await self.order_manager.handle_signal(signal)
+            if is_bullish:
+                await self._execute_option_trade(underlying, 'bullish', latest)
+            elif is_bearish:
+                await self._execute_option_trade(underlying, 'bearish', latest)
+
         except Exception as e:
-            logger.error(f"Error checking entry conditions for {symbol}: {e}", exc_info=True)
+            logger.error(f"Error checking conditions for {underlying}: {e}", exc_info=True)
+
+    async def _execute_option_trade(self, underlying: str, signal_type: str, latest_candle: pd.Series):
+        """
+        Selects the appropriate option contract based on the signal and places the trade.
+        """
+        logger.info(f"Executing option trade for {underlying} based on {signal_type} signal.")
+
+        # 1. Determine option type and find the contract
+        option_type = "CE" if signal_type == 'bullish' else "PE"
+        spot_price = latest_candle['close']
+
+        config = settings.underlying_instruments.get(underlying)
+        atm_strike = options_helper.get_atm_strike(spot_price, config.strike_interval)
+        expiry = options_helper.get_current_weekly_expiry()
+
+        option_symbol = options_helper.generate_option_symbol(underlying, expiry, atm_strike, option_type)
+
+        # 2. Check if we are already in a trade for this underlying
+        query = select(Position).where(Position.symbol.like(f"{underlying}%"), Position.status == "OPEN")
+        existing_position = await database.fetch_one(query)
+        if existing_position:
+            logger.warning(f"Already have an open position for {underlying}. Skipping new trade.")
+            return
+
+        # 3. Subscribe to the option's tick data
+        option_token = self.instrument_manager.get_token(option_symbol, "NFO") # Assuming NFO for options
+        if not option_token:
+            logger.error(f"Could not find token for option {option_symbol}. Cannot place trade.")
+            return
+
+        await self.ws_client.subscribe_to_tokens([{"exchangeType": 2, "tokens": [option_token]}]) # 2 for NFO
+        self.token_to_symbol_map[option_token] = option_symbol
+        self.live_ticks[option_symbol] = pd.DataFrame(columns=['timestamp', 'price', 'volume'])
+        self.candles[option_symbol] = pd.DataFrame()
+        logger.info(f"Subscribed to tick data for {option_symbol}")
+
+        # 4. Get the live price of the option to calculate SL/TP
+        # This part is still simplified. We need to wait for the first tick to get the premium.
+        # For now, we'll continue with the placeholder premium.
+        assumed_premium = 100 # Placeholder
+        sl_price = assumed_premium * 0.5 # 50% stop-loss
+        tp_price = assumed_premium * 2.0 # 100% take-profit
+
+        # 5. Create signal for OrderManager
+        trade_signal = {
+            'symbol': option_symbol,
+            'ts': datetime.utcnow(),
+            'side': 'BUY', # We are buying options
+            'entry': assumed_premium, # This would be the live premium
+            'sl': sl_price,
+            'tp': tp_price,
+            'reason': f'{underlying}_{signal_type.upper()}'
+        }
+
+        logger.info(f"Generated trade signal for option: {trade_signal}")
+        await self.order_manager.handle_signal(trade_signal)
 
     async def manage_active_trades(self):
         """
@@ -244,11 +287,12 @@ class TradingStrategy:
                 await self.order_manager.create_exit_order(pos, "EOD_EXIT")
                 continue
 
-            live_candles = await self.get_candle_data(pos.symbol)
-            if live_candles.empty:
+            ticks_df = self.live_ticks.get(pos.symbol)
+            if ticks_df is None or ticks_df.empty:
+                logger.debug(f"No live ticks available yet for position {pos.symbol}. Skipping.")
                 continue
 
-            current_price = live_candles.iloc[-1]['close']
+            current_price = ticks_df.iloc[-1]['price']
 
             # 2. Trailing Stop-Loss Logic
             trailing_sl = pos.trailing_sl
@@ -313,7 +357,7 @@ class TradingStrategy:
 
             logger.info("Running strategy cycle...")
             try:
-                entry_tasks = [self.check_entry_conditions(symbol) for symbol in self.instruments_to_trade]
+                entry_tasks = [self.check_underlying_conditions(underlying) for underlying in self.underlyings_to_trade]
                 await asyncio.gather(*entry_tasks)
                 await self.manage_active_trades()
             except Exception as e:

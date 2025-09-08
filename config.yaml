@@ -1,8 +1,5 @@
 # Strategy Configuration
 strategy:
-  instruments:
-    - "NIFTYBEES-EQ"
-    - "BANKBEES-EQ"
   timeframe: "1minute"
   ema_short: 9
   ema_long: 21
@@ -12,6 +9,22 @@ strategy:
   trailing_sl:
     is_enabled: true
     percentage: 0.5 # 0.5%
+
+# Options Strategy Configuration
+options_strategy:
+  underlyings:
+    - "NIFTY"
+    - "BANKNIFTY"
+    - "SENSEX"
+  strikes_from_atm: 2
+  trade_calls: true
+  trade_puts: true
+
+# Underlying index tokens (some may not be in the instrument master file)
+underlying_instruments:
+  "NIFTY": { "symbol": "Nifty 50", "token": "99926000", "exchange": "NSE", "strike_interval": 50 }
+  "BANKNIFTY": { "symbol": "Nifty Bank", "token": "99926009", "exchange": "NSE", "strike_interval": 100 }
+  "SENSEX": { "symbol": "SENSEX", "token": "99926001", "exchange": "BSE", "strike_interval": 100 }
 
 # Risk Management Configuration
 risk:
