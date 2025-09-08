@@ -12,7 +12,7 @@ from app.services.angel_one import AngelOneConnector
 from app.services.instrument_manager import InstrumentManager
 from app.services import options_helper
 from app.db.session import database
-from app.models.trading import Position
+from app.models.trading import Position, Signal
 from sqlalchemy import select
 
 class TradingStrategy:
@@ -272,6 +272,11 @@ class TradingStrategy:
         }
 
         logger.info(f"Generated trade signal for option: {trade_signal}")
+
+        # Save the signal to the database to get an ID
+        query = Signal.__table__.insert().values(trade_signal)
+        trade_signal['id'] = await database.execute(query)
+
         await self.order_manager.handle_signal(trade_signal)
 
     async def manage_active_trades(self):
@@ -301,21 +306,27 @@ class TradingStrategy:
             # 2. Trailing Stop-Loss Logic
             trailing_sl = pos.trailing_sl
             if settings.strategy.trailing_sl.is_enabled:
-                if pos.side == 'BUY':
-                    new_highest = max(pos.highest_price_seen or pos.avg_price, current_price)
-                    new_tsl = new_highest * (1 - settings.strategy.trailing_sl.percentage / 100)
-                    if new_tsl > (trailing_sl or pos.sl):
-                        trailing_sl = new_tsl
-                        # Update position with new TSL and highest price
-                        update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_highest)
-                        await database.execute(update_q)
-                elif pos.side == 'SELL':
-                    new_lowest = min(pos.highest_price_seen or pos.avg_price, current_price) # Note: field is highest_price_seen, but used for lowest here
-                    new_tsl = new_lowest * (1 + settings.strategy.trailing_sl.percentage / 100)
-                    if new_tsl < (trailing_sl or pos.sl):
-                        trailing_sl = new_tsl
-                        update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_lowest)
-                        await database.execute(update_q)
+                underlying_candles = await self.get_candle_data(pos.underlying)
+                if not underlying_candles.empty:
+                    atr = underlying_candles.iloc[-1][f'ATR_{settings.strategy.atr_period}']
+                    atr_trail = atr * settings.strategy.trailing_sl.atr_multiplier
+
+                    if pos.side == 'BUY':
+                        new_highest = max(pos.highest_price_seen or pos.avg_price, current_price)
+                        new_tsl = new_highest - atr_trail
+                        if new_tsl > (trailing_sl or pos.sl):
+                            trailing_sl = new_tsl
+                            update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_highest)
+                            await database.execute(update_q)
+                    elif pos.side == 'SELL':
+                        # Note: This logic assumes we are buying puts for bearish signals.
+                        # If selling calls, the logic would be different.
+                        new_lowest = min(pos.highest_price_seen or pos.avg_price, current_price)
+                        new_tsl = new_lowest + atr_trail
+                        if new_tsl < (trailing_sl or pos.sl):
+                            trailing_sl = new_tsl
+                            update_q = Position.__table__.update().where(Position.id == pos.id).values(trailing_sl=trailing_sl, highest_price_seen=new_lowest)
+                            await database.execute(update_q)
 
             # 3. Check for SL/TP Exits
             stop_loss_price = trailing_sl or pos.sl

@@ -16,6 +16,7 @@ class Signal(Base):
     __tablename__ = "signals"
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, index=True)
+    underlying = Column(String, index=True, nullable=True)
     ts = Column(DateTime)
     side = Column(String) # 'BUY' or 'SELL'
     entry = Column(Float)
@@ -46,7 +47,8 @@ class Trade(Base):
 class Position(Base):
     __tablename__ = "positions"
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, unique=True, index=True)
+    symbol = Column(String, index=True)
+    underlying = Column(String, index=True)
     side = Column(String) # 'BUY' or 'SELL'
     qty = Column(Integer)
     avg_price = Column(Float)
