@@ -14,12 +14,17 @@ class StrategyConfig(BaseModel):
     supertrend_multiplier: float # Can be float
     atr_period: int
 
+class VolatilityAdjustmentConfig(BaseModel):
+    high_vol_threshold_percent: float
+    risk_reduction_factor: float
+
 class RiskConfig(BaseModel):
     risk_per_trade_percent: float
     max_daily_loss_percent: float
     consecutive_losses_stop: int
     trailing_stop: dict
     take_profit_atr: float
+    volatility_adjustment: VolatilityAdjustmentConfig
 
 class TradingConfig(BaseModel):
     hours: dict

@@ -19,6 +19,9 @@ risk:
     activate_at_atr: 0.5
     trail_by_atr: 0.3
   take_profit_atr: 0.6
+  volatility_adjustment:
+    high_vol_threshold_percent: 0.5 # e.g., if ATR is >0.5% of price, consider it high volatility
+    risk_reduction_factor: 0.5 # e.g., reduce risk exposure by 50% in high volatility
 
 # Trading Session Configuration
 trading:

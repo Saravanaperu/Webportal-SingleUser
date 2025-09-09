@@ -62,7 +62,13 @@ class OrderManager:
             return
         if not self.risk_manager.can_place_trade():
             return
-        position_size = self.risk_manager.calculate_position_size(signal['entry'], signal['sl'])
+
+        position_size = self.risk_manager.calculate_position_size(
+            entry_price=signal['entry'],
+            stop_loss_price=signal['sl'],
+            atr=signal['atr_at_entry']
+        )
+
         if position_size > 0:
             await self.create_market_order(signal, position_size)
 
