@@ -146,15 +146,16 @@ async def set_strategy_parameters(request: Request, params: StrategyConfig):
 
 @router.get("/stats")
 async def get_stats(request: Request):
-    """Returns daily trading statistics."""
+    """Returns detailed daily trading statistics."""
     try:
         risk_manager = request.app.state.risk_manager
         stats = {
             "pnl": round(risk_manager.daily_pnl, 2),
-            "realized_pnl": round(risk_manager.daily_pnl, 2),
-            "unrealized_pnl": 0.0,
-            "win_rate": None,
-            "drawdown": None,
+            "equity": round(risk_manager.equity, 2),
+            "total_trades": risk_manager.total_trades,
+            "win_rate": round(risk_manager.win_rate, 2),
+            "avg_win_pnl": round(risk_manager.avg_win_pnl, 2),
+            "avg_loss_pnl": round(risk_manager.avg_loss_pnl, 2),
             "consecutive_losses": risk_manager.consecutive_losses,
             "is_trading_stopped": risk_manager.is_trading_stopped
         }
