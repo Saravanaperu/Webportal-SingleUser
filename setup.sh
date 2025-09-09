@@ -24,21 +24,29 @@ echo ""
 # --- 2. Create Virtual Environment ---
 VENV_DIR="venv"
 echo "Step 2: Creating Python virtual environment in './${VENV_DIR}'..."
-if [ -d "$VENV_DIR" ]; then
-    echo "Virtual environment './${VENV_DIR}' already exists. Skipping creation."
-else
+if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv $VENV_DIR
     if [ $? -ne 0 ]; then
         echo "ERROR: Failed to create virtual environment."
         exit 1
     fi
+    echo "Virtual environment created."
+else
+    echo "Virtual environment './${VENV_DIR}' already exists. Skipping creation."
 fi
-echo "Virtual environment created."
 echo ""
 
-# --- 3. Install Dependencies ---
-echo "Step 3: Installing required Python packages into the virtual environment..."
-$VENV_DIR/bin/pip3 install -r backend/requirements.txt
+# --- 3. Verify Virtual Environment and Install Dependencies ---
+echo "Step 3: Verifying virtual environment and installing packages..."
+if [ ! -f "$VENV_DIR/bin/pip" ]; then
+    echo "ERROR: pip not found in the virtual environment."
+    echo "This can happen if the 'python3-venv' package is not installed on your system."
+    echo "Please try running: sudo apt-get install python3-venv"
+    echo "Then, delete the partially created 'venv' directory and run this script again."
+    exit 1
+fi
+
+$VENV_DIR/bin/pip install -r backend/requirements.txt
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to install dependencies from backend/requirements.txt."
     exit 1
