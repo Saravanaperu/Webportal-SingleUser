@@ -13,6 +13,7 @@ from app.services.order_manager import OrderManager
 from app.services.strategy import TradingStrategy
 from app.services.instrument_manager import instrument_manager
 from app.services.market_data_manager import market_data_manager
+from app.services.notifier import notifier
 
 app = FastAPI(title="Automated Trading Portal")
 
@@ -114,9 +115,12 @@ async def startup_event():
                 )
                 logger.info("Order update processing task started.")
 
+        # Send startup notification
+        await notifier.send_message("✅ Trading Portal Started Successfully.")
 
     except Exception as e:
         logger.critical(f"Fatal error during service initialization: {e}", exc_info=True)
+        await notifier.send_message(f"🛑 Trading Portal failed to start: {e}")
 
 
 async def process_market_data(queue: asyncio.Queue):

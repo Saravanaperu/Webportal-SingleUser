@@ -10,6 +10,8 @@ from app.services.order_manager import OrderManager
 from app.services.risk_manager import RiskManager
 from app.services.market_data_manager import market_data_manager
 from app.services.instrument_manager import instrument_manager
+from app.db.session import database
+from app.models.trading import Candle
 
 class TradingStrategy:
     """
@@ -39,33 +41,25 @@ class TradingStrategy:
 
     async def warm_up(self):
         """
-        Fetches historical data to warm up the indicators for all instruments.
+        Loads the last N candles from the database to warm up indicators.
         """
-        logger.info("Warming up indicators with historical data...")
+        logger.info("Warming up indicators with historical data from database...")
         for symbol in self.instruments:
             try:
-                token = instrument_manager.get_token(symbol, "NSE")
-                if not token:
-                    logger.error(f"Could not get token for {symbol} during warm-up.")
-                    continue
-
-                historic_params = {
-                    "exchange": "NSE", "symboltoken": token, "interval": "ONE_MINUTE",
-                    "fromdate": (datetime.now() - timedelta(minutes=200)).strftime('%Y-%m-%d %H:%M'),
-                    "todate": datetime.now().strftime('%Y-%m-%d %H:%M')
-                }
-                data = await self.connector.get_candle_data(historic_params)
-
-                if data and isinstance(data, list):
-                    df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.desc()).limit(200)
+                results = await database.fetch_all(query)
+                if results:
+                    # The data is fetched in descending order, so we need to reverse it
+                    results.reverse()
+                    df = pd.DataFrame(results)
+                    df['timestamp'] = pd.to_datetime(df['ts'])
                     df.set_index('timestamp', inplace=True)
                     self.candle_history[symbol] = df
-                    logger.info(f"Successfully warmed up {len(df)} candles for {symbol}.")
+                    logger.info(f"Successfully warmed up {len(df)} candles for {symbol} from DB.")
                 else:
-                    logger.warning(f"Could not fetch historical data for {symbol}. Response: {data}")
+                    logger.warning(f"No historical data found in DB for {symbol}. Will build history from live data.")
             except Exception as e:
-                logger.error(f"Error during warm-up for {symbol}: {e}", exc_info=True)
+                logger.error(f"Error during DB warm-up for {symbol}: {e}", exc_info=True)
         logger.info("Indicator warm-up complete.")
 
     def start(self):
@@ -126,18 +120,20 @@ class TradingStrategy:
             logger.error(f"Error checking entry conditions for {symbol}: {e}", exc_info=True)
 
     async def update_and_check_candles(self):
-        """Checks for new 1-minute candles and triggers entry condition checks."""
+        """
+        Checks for new 1-minute candles from the MarketDataManager,
+        updates the history, and triggers entry condition checks.
+        """
         for symbol in self.instruments:
+            # get_1m_candle now returns a new, completed candle that was saved to DB, or None
             new_candle_df = await market_data_manager.get_1m_candle(symbol)
-            if new_candle_df is not None and not new_candle_df.empty:
-                last_known_candle_time = self.candle_history[symbol].index[-1] if not self.candle_history[symbol].empty else None
-                new_candle_time = new_candle_df.index[0]
+            if new_candle_df is not None:
+                logger.info(f"New 1m candle processed for {symbol} at {new_candle_df.index[0]}.")
+                # Append the new candle and check for signals
+                self.candle_history[symbol] = pd.concat([self.candle_history[symbol], new_candle_df])
+                self.candle_history[symbol] = self.candle_history[symbol].tail(200)
 
-                if last_known_candle_time is None or new_candle_time > last_known_candle_time:
-                    logger.info(f"New 1m candle for {symbol} at {new_candle_time}.")
-                    self.candle_history[symbol] = pd.concat([self.candle_history[symbol], new_candle_df])
-                    self.candle_history[symbol] = self.candle_history[symbol].tail(200)
-                    await self.check_entry_conditions(symbol)
+                await self.check_entry_conditions(symbol)
 
     async def manage_active_trades(self):
         """Manages exits for active trades."""

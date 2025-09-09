@@ -56,3 +56,15 @@ class Position(Base):
     avg_price = Column(Float)
     pnl = Column(Float, default=0.0)
     ts = Column(DateTime) # Last updated timestamp
+
+class HistoricalTrade(Base):
+    __tablename__ = "historical_trades"
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, index=True)
+    side = Column(String)
+    qty = Column(Integer)
+    entry_price = Column(Float)
+    exit_price = Column(Float)
+    pnl = Column(Float)
+    entry_time = Column(DateTime)
+    exit_time = Column(DateTime)
