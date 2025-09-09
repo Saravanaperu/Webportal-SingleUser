@@ -14,9 +14,6 @@ PyYAML
 loguru
 pyotp
 numpy
-smartapi-python
-logzero
-websocket-client
 
 # Testing
 pytest

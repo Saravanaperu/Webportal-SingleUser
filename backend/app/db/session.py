@@ -1,9 +1,15 @@
 from databases import Database
 from sqlalchemy import create_engine
+from pathlib import Path
 from app.db.base import Base
 
-# The database URL should point to the data volume in the Docker container.
-DATABASE_URL = "sqlite:////app/data/trading_portal.db"
+# --- Path Setup ---
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# This makes the database path relative to the project root, not the current working dir.
+BASE_DIR = Path(__file__).resolve().parents[2]
+DB_PATH = BASE_DIR / "data" / "trading_portal.db"
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+
 
 # The 'databases' library provides async support for a variety of databases.
 database = Database(DATABASE_URL)
