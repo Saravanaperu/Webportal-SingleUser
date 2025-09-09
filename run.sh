@@ -16,14 +16,10 @@ fi
 echo "Activating virtual environment..."
 source $VENV_DIR/bin/activate
 
-# Change to the backend directory
-echo "Changing to backend directory..."
-cd backend
-
-# Run the Uvicorn server
+# Run the Uvicorn server from the root directory
 echo "Starting FastAPI server with Uvicorn..."
 echo "Access the dashboard at http://localhost:8000"
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+venv/bin/uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 
 # Deactivate on exit (e.g., Ctrl+C)
 echo "Server stopped."
