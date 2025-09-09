@@ -1,7 +1,7 @@
 from datetime import datetime
 from app.core.logging import logger
 from app.services.risk_manager import RiskManager
-from app.models.trading import Order, Trade
+from app.models.trading import Order, Trade, HistoricalTrade
 from app.db.session import database
 
 class OrderManager:
@@ -98,13 +98,35 @@ class OrderManager:
 
         # This update is for a closing order of an existing position
         if symbol in self.open_positions and self.open_positions[symbol]['side'] != order.side:
-            self.open_positions[symbol]['qty'] -= int(update.get("filledshares", 0))
-            logger.info(f"Closing trade for {symbol}. Remaining qty: {self.open_positions[symbol]['qty']}")
-            if self.open_positions[symbol]['qty'] <= 0:
-                del self.open_positions[symbol]
-                logger.info(f"Position for {symbol} fully closed.")
+            position = self.open_positions[symbol]
+            # The 'filledshares' in a closing order update refers to the shares of the closing order,
+            # not the total position. We assume the closing order is for the full position size.
+
             if status == "COMPLETE":
+                exit_price = float(update.get("averageprice", 0))
+                original_qty = position['qty']
+
+                # Calculate P&L
+                if position['side'] == 'BUY':
+                    pnl = (exit_price - position['entry_price']) * original_qty
+                else: # SELL
+                    pnl = (position['entry_price'] - exit_price) * original_qty
+
+                # Log to historical trades
+                trade_log = {
+                    "symbol": symbol, "side": position['side'], "qty": original_qty,
+                    "entry_price": position['entry_price'], "exit_price": exit_price,
+                    "pnl": pnl, "entry_time": position['entry_time'], "exit_time": datetime.utcnow()
+                }
+                insert_query = HistoricalTrade.__table__.insert().values(trade_log)
+                await self.db.execute(insert_query)
+                logger.info(f"Saved historical trade for {symbol} with P&L: {pnl:.2f}")
+
+                # Update risk manager and remove position
+                self.risk_manager.record_trade(pnl=pnl)
+                del self.open_positions[symbol]
                 del self.active_orders[broker_order_id]
+
             return
 
         # --- This update is for an entry order ---
@@ -136,8 +158,6 @@ class OrderManager:
             position['qty'] = new_total_qty
             position['total_cost'] = new_total_cost
             logger.info(f"Position for {symbol} updated with partial fill.")
-
-        self.risk_manager.record_trade(pnl=0)
 
         if status == "COMPLETE":
             del self.active_orders[broker_order_id]

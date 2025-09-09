@@ -82,13 +82,13 @@
                     </tbody>
                 </table>
             </div>
-            <div id="orders">
-                <h2>Today's Orders</h2>
+            <div id="trades">
+                <h2>Historical Trades</h2>
                 <table>
                     <thead>
-                        <tr><th>ID</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Timestamp</th></tr>
+                        <tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Time</th></tr>
                     </thead>
-                    <tbody id="orders-table-body">
+                    <tbody id="trades-table-body">
                         <!-- JS will populate this -->
                     </tbody>
                 </table>
@@ -104,7 +104,7 @@
             const marginEl = document.getElementById('margin');
             const realizedPnlEl = document.getElementById('realized-pnl');
             const tradingStatusEl = document.getElementById('trading-status');
-            const ordersTableBody = document.getElementById('orders-table-body');
+            const tradesTableBody = document.getElementById('trades-table-body');
             const positionsTableBody = document.getElementById('positions-table-body');
             const strategyToggleBtn = document.getElementById('strategy-toggle');
             const killSwitchBtn = document.getElementById('kill-switch');
@@ -171,12 +171,12 @@
 
             async function fetchInitialData() {
                 try {
-                    const [accRes, statsRes, ordersRes] = await Promise.all([
-                        fetch('/api/account'), fetch('/api/stats'), fetch('/api/orders')
+                    const [accRes, statsRes, tradesRes] = await Promise.all([
+                        fetch('/api/account'), fetch('/api/stats'), fetch('/api/trades')
                     ]);
                     const accData = await accRes.json();
                     const statsData = await statsRes.json();
-                    const ordersData = await ordersRes.json();
+                    const tradesData = await tradesRes.json();
 
                     if (accData && !accData.error) {
                         balanceEl.textContent = `$${Number(accData.balance).toFixed(2)}`;
@@ -185,8 +185,12 @@
                     if (statsData && !statsData.error) {
                         updateStats(statsData);
                     }
-                    ordersTableBody.innerHTML = '';
-                    ordersData.forEach(order => addOrderRow(order));
+                    tradesTableBody.innerHTML = '';
+                    if (tradesData && tradesData.length > 0) {
+                        tradesData.forEach(trade => addTradeRow(trade));
+                    } else {
+                        tradesTableBody.innerHTML = '<tr><td colspan="7">No historical trades found.</td></tr>';
+                    }
                     fetchPositions(); // Initial fetch
                     fetchStrategyParams(); // Initial fetch
                 } catch (err) {
@@ -203,13 +207,6 @@
                     candleSeries.update(candle);
                 };
                 marketWs.onerror = (err) => console.error('Market WS Error:', err);
-
-                const orderWs = new WebSocket(`ws://${window.location.host}/ws/orders`);
-                orderWs.onmessage = (event) => {
-                    const order = JSON.parse(event.data);
-                    addOrderRow(order, true);
-                };
-                orderWs.onerror = (err) => console.error('Order WS Error:', err);
             }
 
             // --- UI Updates ---
@@ -224,11 +221,20 @@
                 }
             }
 
-            function addOrderRow(order, prepend = false) {
+            function addTradeRow(trade) {
                 const row = document.createElement('tr');
-                row.innerHTML = `<td>${order.id}</td><td>${order.symbol}</td><td>${order.side}</td><td>${order.qty}</td><td>${order.status}</td><td>${new Date(order.ts).toLocaleTimeString()}</td>`;
-                if (prepend) ordersTableBody.insertBefore(row, ordersTableBody.firstChild);
-                else ordersTableBody.appendChild(row);
+                const pnlClass = trade.pnl >= 0 ? 'positive' : 'negative';
+                const sideClass = trade.side.toLowerCase();
+                row.innerHTML = `
+                    <td>${trade.symbol}</td>
+                    <td class="${sideClass}">${trade.side}</td>
+                    <td>${trade.qty}</td>
+                    <td>${Number(trade.entry_price).toFixed(2)}</td>
+                    <td>${Number(trade.exit_price).toFixed(2)}</td>
+                    <td class="${pnlClass}">$${Number(trade.pnl).toFixed(2)}</td>
+                    <td>${new Date(trade.exit_time).toLocaleTimeString()}</td>
+                `;
+                tradesTableBody.appendChild(row);
             }
 
             function disableControls(){

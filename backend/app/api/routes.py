@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body, HT
 from app.core.logging import logger
 from app.db.session import database
 from app.core.config import StrategyConfig
+from app.models.trading import HistoricalTrade
 
 router = APIRouter()
 
@@ -57,12 +58,12 @@ async def get_positions(request: Request):
 
     return positions_with_pnl
 
-@router.get("/orders")
-async def get_orders(request: Request):
-    """Returns a list of today's orders from the database."""
-    query = "SELECT * FROM orders ORDER BY ts DESC LIMIT 50"
-    orders = await database.fetch_all(query)
-    return [dict(order) for order in orders]
+@router.get("/trades")
+async def get_trades(request: Request):
+    """Returns a list of historical trades from the database."""
+    query = HistoricalTrade.__table__.select().order_by(HistoricalTrade.exit_time.desc()).limit(50)
+    trades = await database.fetch_all(query)
+    return [dict(trade) for trade in trades]
 
 @router.post("/strategy/control")
 async def control_strategy(request: Request, payload: dict = Body(...)):
