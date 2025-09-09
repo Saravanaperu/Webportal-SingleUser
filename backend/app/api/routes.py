@@ -88,7 +88,7 @@ async def control_strategy(request: Request, payload: dict = Body(...)):
             return {"status": "Strategy is already stopped."}
 
         elif action == "kill":
-            await risk_manager.stop_trading("Manual kill switch activated.")
+            risk_manager.stop_trading("Manual kill switch activated.")
             strategy.stop()
             # In a real app, you would also trigger closing all positions.
             # await request.app.state.order_manager.close_all_positions()

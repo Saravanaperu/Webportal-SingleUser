@@ -3,7 +3,6 @@ from app.core.logging import logger
 from app.services.risk_manager import RiskManager
 from app.models.trading import Order, Trade, HistoricalTrade
 from app.db.session import database
-from .notifier import notifier
 
 class OrderManager:
     """
@@ -117,13 +116,9 @@ class OrderManager:
                 insert_query = HistoricalTrade.__table__.insert().values(trade_log)
                 await self.db.execute(insert_query)
 
-                await self.risk_manager.record_trade(pnl=pnl)
+                self.risk_manager.record_trade(pnl=pnl)
                 del self.open_positions[symbol]
                 del self.active_orders[broker_order_id]
-
-                pnl_icon = "🟢" if pnl >= 0 else "🔴"
-                message = f"{pnl_icon} *Trade Closed*\nSymbol: {symbol}\nSide: {position['side']}\nQty: {original_qty}\nP&L: ${pnl:.2f}"
-                await notifier.send_message(message)
 
             return
 
@@ -142,8 +137,7 @@ class OrderManager:
                 'atr_at_entry': order.atr_at_entry, 'entry_time': datetime.utcnow(),
                 'total_cost': fill_qty * fill_price
             }
-            message = f"🔵 *New Trade Opened*\nSymbol: {symbol}\nSide: {order.side}\nQty: {fill_qty}\nPrice: ${fill_price:.2f}"
-            await notifier.send_message(message)
+            logger.info(f"New position opened on first fill for {symbol}.")
         else:
             # Subsequent partial fill
             position = self.open_positions[symbol]
