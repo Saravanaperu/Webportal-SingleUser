@@ -116,7 +116,7 @@ class OrderManager:
                 insert_query = HistoricalTrade.__table__.insert().values(trade_log)
                 await self.db.execute(insert_query)
 
-                self.risk_manager.record_trade(pnl=pnl)
+                await self.risk_manager.record_trade(pnl=pnl)
                 del self.open_positions[symbol]
                 del self.active_orders[broker_order_id]
 

@@ -48,13 +48,14 @@ class RiskManager:
             return 0.0
         return self.total_loss_pnl / self.losses
 
-    def stop_trading(self, reason: str):
+    async def stop_trading(self, reason: str):
         """Activates the kill switch to stop all new trading activity."""
         if not self.is_trading_stopped:
             self.is_trading_stopped = True
             logger.critical(f"STOPPING TRADING. Reason: {reason}")
+            # A future await call could go here, e.g., for notifications.
 
-    def record_trade(self, pnl: float):
+    async def record_trade(self, pnl: float):
         """Updates daily P&L and all other statistics, then checks risk limits."""
         self.daily_pnl += pnl
         self.equity += pnl
@@ -72,9 +73,9 @@ class RiskManager:
         logger.info(f"Consecutive losses: {self.consecutive_losses}. Win/Loss: {self.wins}/{self.losses}.")
 
         if self.daily_pnl <= -self.max_daily_loss_value:
-            self.stop_trading(f"Max daily loss limit of ${self.max_daily_loss_value:.2f} reached.")
+            await self.stop_trading(f"Max daily loss limit of ${self.max_daily_loss_value:.2f} reached.")
         if self.consecutive_losses >= self.risk_params.consecutive_losses_stop:
-            self.stop_trading(f"Max consecutive loss limit of {self.risk_params.consecutive_losses_stop} reached.")
+            await self.stop_trading(f"Max consecutive loss limit of {self.risk_params.consecutive_losses_stop} reached.")
 
     def calculate_position_size(self, entry_price: float, stop_loss_price: float, atr: float) -> int:
         """Calculates position size based on risk per trade, adjusted for volatility."""
