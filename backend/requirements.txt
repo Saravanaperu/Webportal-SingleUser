@@ -14,3 +14,7 @@ PyYAML
 loguru
 pyotp
 numpy
+
+# Testing
+pytest
+pytest-asyncio
