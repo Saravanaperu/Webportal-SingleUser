@@ -2,8 +2,7 @@ import yaml
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
-
-load_dotenv()
+from pathlib import Path
 
 class StrategyConfig(BaseModel):
     instruments: list[str]
@@ -47,7 +46,17 @@ class Settings(BaseModel):
     trading: TradingConfig
     cooldown: CooldownConfig
 
-def load_config(path: str = "config.yaml") -> dict:
+# --- Path Setup ---
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parents[3]
+CONFIG_FILE = BASE_DIR / "config.yaml"
+ENV_FILE = BASE_DIR / ".env"
+
+# Load environment variables from .env file in the project root
+load_dotenv(dotenv_path=ENV_FILE)
+
+
+def load_config(path: Path = CONFIG_FILE) -> dict:
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
