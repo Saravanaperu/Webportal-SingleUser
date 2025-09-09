@@ -1,16 +1,12 @@
-# Strategy Configuration
 strategy:
   instruments:
-    - "NIFTYBEES-EQ"
-    - "BANKBEES-EQ"
-  timeframe: "1minute"
-  ema_short: 9
-  ema_long: 21
-  supertrend_period: 10
-  supertrend_multiplier: 3
-  atr_period: 14
-
-# Risk Management Configuration
+  - TEST-EQ
+  timeframe: 1m
+  ema_short: 10
+  ema_long: 22
+  supertrend_period: 11
+  supertrend_multiplier: 3.5
+  atr_period: 11
 risk:
   risk_per_trade_percent: 0.25
   max_daily_loss_percent: 3.0
@@ -20,16 +16,12 @@ risk:
     trail_by_atr: 0.3
   take_profit_atr: 0.6
   volatility_adjustment:
-    high_vol_threshold_percent: 0.5 # e.g., if ATR is >0.5% of price, consider it high volatility
-    risk_reduction_factor: 0.5 # e.g., reduce risk exposure by 50% in high volatility
-
-# Trading Session Configuration
+    high_vol_threshold_percent: 0.5
+    risk_reduction_factor: 0.5
 trading:
   hours:
-    start: "09:15"
-    end: "15:20" # Market closes at 15:30, close all trades 10 mins before
+    start: 09:15
+    end: '15:20'
   paper_trading: true
-
-# Cooldown Configuration
 cooldown:
   after_consecutive_losses_minutes: 30

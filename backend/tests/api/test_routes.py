@@ -1,5 +1,6 @@
 import pytest
 import httpx
+from httpx import ASGITransport
 from unittest.mock import MagicMock, AsyncMock
 
 from app.main import app
@@ -25,12 +26,17 @@ def mock_app_state():
     mock_risk_manager.consecutive_losses = 1
     mock_risk_manager.is_trading_stopped = False
 
+    mock_market_data_manager = MagicMock()
+    mock_market_data_manager.last_tick_time = "2023-01-01T12:00:00Z"
+
     app.state.strategy = mock_strategy
     app.state.risk_manager = mock_risk_manager
+    app.state.market_data_manager = mock_market_data_manager
     yield
     # Teardown: remove mocked state
     del app.state.strategy
     del app.state.risk_manager
+    del app.state.market_data_manager
 
 
 @pytest.mark.asyncio
@@ -38,7 +44,7 @@ async def test_get_stats_endpoint(mock_app_state):
     """
     Tests the GET /api/stats endpoint.
     """
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/api/stats")
 
     assert response.status_code == 200
@@ -52,7 +58,7 @@ async def test_get_strategy_parameters_endpoint(mock_app_state):
     """
     Tests the GET /api/strategy/parameters endpoint.
     """
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/api/strategy/parameters")
 
     assert response.status_code == 200
@@ -78,7 +84,7 @@ async def test_set_strategy_parameters_endpoint(mock_app_state):
     # Mock the update_parameters method on the strategy mock
     app.state.strategy.update_parameters = MagicMock()
 
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/strategy/parameters", json=new_params)
 
     assert response.status_code == 200
