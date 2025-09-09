@@ -18,3 +18,5 @@ numpy
 # Testing
 pytest
 pytest-asyncio
+
+# Notifications

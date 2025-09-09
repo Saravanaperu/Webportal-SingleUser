@@ -85,6 +85,32 @@ The script will start the web server.
 -   **Monitor Activity**: Watch the "Open Positions" and "Today's Orders" tables to see the bot's activity in real-time.
 -   **Emergency Stop**: Use the "EMERGENCY STOP" button to immediately halt all new trading activity.
 -   **Stop the Application**: To stop the server, go to the terminal where you ran the `run` script and press `Ctrl+C`.
+
+## Optional: Telegram Notifications
+
+This project includes an optional feature to send you real-time notifications about trading activity via a Telegram bot.
+
+### **How to Set It Up**
+
+1.  **Create a Telegram Bot**:
+    *   Open Telegram and search for the `@BotFather` bot.
+    *   Start a chat with BotFather and send the `/newbot` command.
+    *   Follow the prompts to name your bot and choose a username.
+    *   BotFather will give you a unique **Bot Token**. Copy this value.
+
+2.  **Get Your Chat ID**:
+    *   Search for the `@userinfobot` bot on Telegram and start a chat with it.
+    *   It will immediately send you a message containing your **Chat ID**. Copy this value.
+
+3.  **Update Your Environment File**:
+    *   Open your `.env` file.
+    *   Paste the Bot Token and Chat ID into the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` fields, respectively.
+
+4.  **Start Your Bot**:
+    *   You must send the `/start` command (or any message) to your new bot from your personal Telegram account before it can send you messages.
+
+Once configured, the application will automatically start sending notifications when you run it.
+
 ---
 
 ## Project Architecture

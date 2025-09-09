@@ -3,6 +3,7 @@ from app.core.logging import logger
 from app.services.risk_manager import RiskManager
 from app.models.trading import Order, Trade, HistoricalTrade
 from app.db.session import database
+from .notifier import notifier
 
 class OrderManager:
     """
@@ -99,20 +100,15 @@ class OrderManager:
         # This update is for a closing order of an existing position
         if symbol in self.open_positions and self.open_positions[symbol]['side'] != order.side:
             position = self.open_positions[symbol]
-            # The 'filledshares' in a closing order update refers to the shares of the closing order,
-            # not the total position. We assume the closing order is for the full position size.
-
             if status == "COMPLETE":
                 exit_price = float(update.get("averageprice", 0))
                 original_qty = position['qty']
 
-                # Calculate P&L
                 if position['side'] == 'BUY':
                     pnl = (exit_price - position['entry_price']) * original_qty
                 else: # SELL
                     pnl = (position['entry_price'] - exit_price) * original_qty
 
-                # Log to historical trades
                 trade_log = {
                     "symbol": symbol, "side": position['side'], "qty": original_qty,
                     "entry_price": position['entry_price'], "exit_price": exit_price,
@@ -120,12 +116,14 @@ class OrderManager:
                 }
                 insert_query = HistoricalTrade.__table__.insert().values(trade_log)
                 await self.db.execute(insert_query)
-                logger.info(f"Saved historical trade for {symbol} with P&L: {pnl:.2f}")
 
-                # Update risk manager and remove position
-                self.risk_manager.record_trade(pnl=pnl)
+                await self.risk_manager.record_trade(pnl=pnl)
                 del self.open_positions[symbol]
                 del self.active_orders[broker_order_id]
+
+                pnl_icon = "🟢" if pnl >= 0 else "🔴"
+                message = f"{pnl_icon} *Trade Closed*\nSymbol: {symbol}\nSide: {position['side']}\nQty: {original_qty}\nP&L: ${pnl:.2f}"
+                await notifier.send_message(message)
 
             return
 
@@ -133,22 +131,19 @@ class OrderManager:
         fill_qty = int(update.get("filledshares", 0))
         fill_price = float(update.get("averageprice", 0))
 
-        # Create a trade record for this specific fill
         trade_to_create = {"order_id": internal_order_id, "fill_price": fill_price, "qty": fill_qty, "ts": datetime.utcnow()}
         query = Trade.__table__.insert().values(trade_to_create)
         await self.db.execute(query)
-        logger.info(f"Trade record created for fill of order {internal_order_id} ({fill_qty} shares @ {fill_price}).")
 
-        # Create or update the in-memory position
         if symbol not in self.open_positions:
-            # First fill for this position
             self.open_positions[symbol] = {
                 'symbol': symbol, 'side': order.side, 'qty': fill_qty,
                 'entry_price': fill_price, 'sl': order.sl, 'tp': order.tp,
                 'atr_at_entry': order.atr_at_entry, 'entry_time': datetime.utcnow(),
                 'total_cost': fill_qty * fill_price
             }
-            logger.info(f"New position opened on first fill for {symbol}.")
+            message = f"🔵 *New Trade Opened*\nSymbol: {symbol}\nSide: {order.side}\nQty: {fill_qty}\nPrice: ${fill_price:.2f}"
+            await notifier.send_message(message)
         else:
             # Subsequent partial fill
             position = self.open_positions[symbol]
