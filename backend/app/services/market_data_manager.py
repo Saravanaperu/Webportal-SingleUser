@@ -4,6 +4,8 @@ from collections import defaultdict
 import asyncio
 
 from app.core.logging import logger
+from app.db.session import database
+from app.models.trading import Candle
 
 class MarketDataManager:
     _instance = None
@@ -54,7 +56,8 @@ class MarketDataManager:
 
     async def get_1m_candle(self, symbol: str) -> pd.DataFrame | None:
         """
-        Builds a 1-minute OHLCV candle from the stored ticks.
+        Builds a 1-minute OHLCV candle from the stored ticks, saves it to the DB,
+        and returns the new candle.
         """
         ticks = self.candle_data.get(symbol, [])
         if not ticks:
@@ -64,17 +67,44 @@ class MarketDataManager:
         df['ts'] = pd.to_datetime(df['ts'])
         df.set_index('ts', inplace=True)
 
-        # Resample to 1 minute
-        # We need a volume component to do this properly, which we don't have yet.
-        # We will simulate it for now.
+        # Resample to 1 minute. We lack real volume, so it's omitted.
         ohlc = df['price'].resample('1Min').ohlc()
 
-        # Clear old ticks to prevent memory leak
-        now = datetime.now()
-        one_minute_ago = now - timedelta(minutes=1)
-        self.candle_data[symbol] = [t for t in ticks if t['ts'] > one_minute_ago]
+        # We only care about the most recently completed candle
+        if len(ohlc) < 1:
+            return None
 
-        return ohlc.tail(1) # Return the last complete candle
+        last_candle = ohlc.iloc[-1]
+
+        # Clear old ticks to prevent memory leak, keeping only the current minute's ticks
+        now = datetime.now()
+        current_minute_start = now.replace(second=0, microsecond=0)
+        self.candle_data[symbol] = [t for t in ticks if t['ts'] >= current_minute_start]
+
+        # Save the new candle to the database
+        try:
+            candle_data_to_save = {
+                "symbol": symbol,
+                "ts": last_candle.name.to_pydatetime(),
+                "open": last_candle.open,
+                "high": last_candle.high,
+                "low": last_candle.low,
+                "close": last_candle.close,
+                "volume": 0 # Volume is not available from ticks yet
+            }
+            # Check if this candle already exists to prevent duplicates
+            query = Candle.__table__.select().where(
+                (Candle.symbol == symbol) & (Candle.ts == candle_data_to_save['ts'])
+            )
+            exists = await database.fetch_one(query)
+            if not exists:
+                insert_query = Candle.__table__.insert().values(candle_data_to_save)
+                await database.execute(insert_query)
+                logger.info(f"Saved new 1m candle for {symbol} at {candle_data_to_save['ts']} to DB.")
+        except Exception as e:
+            logger.error(f"Failed to save candle for {symbol} to DB: {e}", exc_info=True)
+
+        return pd.DataFrame([last_candle])
 
 # Create a single instance of the market data manager
 market_data_manager = MarketDataManager()
