@@ -12,10 +12,14 @@ IF NOT EXIST "%VENV_DIR%" (
     GOTO:EOF
 )
 
-REM Run the Uvicorn server from the root directory using the venv's python
+REM Change to the backend directory
+ECHO Changing to backend directory...
+cd backend
+
+REM Run the Uvicorn server from within the backend directory
 ECHO Starting FastAPI server with Uvicorn...
 ECHO Access the dashboard at http://localhost:8000
-.\%VENV_DIR%\Scripts\uvicorn.exe backend.app.main:app --host 0.0.0.0 --port 8000 --app-dir .
+..\%VENV_DIR%\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000
 
 REM The server will run until you stop it with Ctrl+C
 ECHO Server stopped.
