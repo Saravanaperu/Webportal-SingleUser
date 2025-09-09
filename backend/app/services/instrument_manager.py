@@ -65,6 +65,28 @@ class InstrumentManager:
 
         return token
 
+    def get_symbol(self, token: str) -> str | None:
+        """
+        Gets the symbol for a given token. Builds a reverse map if it doesn't exist.
+        """
+        if not hasattr(self, 'token_to_symbol_map'):
+            self._build_reverse_map()
+
+        return self.token_to_symbol_map.get(token)
+
+    def _build_reverse_map(self):
+        """
+        Builds a reverse mapping from token to tradingsymbol.
+        """
+        logger.info("Building token-to-symbol reverse map...")
+        self.token_to_symbol_map = {}
+        for instrument in self.instrument_list:
+            token = instrument.get("token")
+            symbol = instrument.get("tradingsymbol")
+            if token and symbol:
+                self.token_to_symbol_map[token] = symbol
+        logger.info("Token-to-symbol reverse map built.")
+
     def get_underlying_config(self, underlying: str) -> dict | None:
         """
         Gets the configuration for a given underlying from the settings file.

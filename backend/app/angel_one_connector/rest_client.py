@@ -107,3 +107,16 @@ class AngelRestClient:
         except Exception as e:
             logger.error(f"Error placing order: {e}", exc_info=True)
             return None
+
+    def get_candle_data(self, params: dict) -> list | None:
+        """Fetches historical candle data."""
+        logger.info(f"Fetching candle data with params: {params}")
+        try:
+            candle_data = self.smart_api.getCandleData(params)
+            if isinstance(candle_data, dict) and candle_data.get("status") == False:
+                 logger.error(f"Failed to fetch candle data: {candle_data.get('message')}")
+                 return None
+            return candle_data
+        except Exception as e:
+            logger.error(f"Error fetching candle data: {e}", exc_info=True)
+            return None

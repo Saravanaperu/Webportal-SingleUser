@@ -33,7 +33,12 @@ class Order(Base):
     qty = Column(Integer)
     price = Column(Float, nullable=True) # For limit orders
     status = Column(String) # e.g., 'PENDING', 'FILLED', 'CANCELLED'
+    reason = Column(String, nullable=True) # For failed orders
     ts = Column(DateTime)
+    # Fields to store from the signal for position creation
+    sl = Column(Float, nullable=True)
+    tp = Column(Float, nullable=True)
+    atr_at_entry = Column(Float, nullable=True)
 
 class Trade(Base):
     __tablename__ = "trades"
