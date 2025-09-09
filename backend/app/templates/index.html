@@ -32,7 +32,8 @@
                     <p>Win Rate: <span id="win-rate">--</span></p>
                     <p>Avg. Win: <span id="avg-win">--</span></p>
                     <p>Avg. Loss: <span id="avg-loss">--</span></p>
-                    <p>Status: <span id="trading-status">RUNNING</span></p>
+                    <p>Trading Status: <span id="trading-status">RUNNING</span></p>
+                    <p>Data Feed: <span id="data-feed-status">--</span></p>
                 </div>
             </div>
         </section>
@@ -117,6 +118,7 @@
             const avgWinEl = document.getElementById('avg-win');
             const avgLossEl = document.getElementById('avg-loss');
             const tradingStatusEl = document.getElementById('trading-status');
+            const dataFeedStatusEl = document.getElementById('data-feed-status');
             const tradesTableBody = document.getElementById('trades-table-body');
             const positionsTableBody = document.getElementById('positions-table-body');
             const strategyToggleBtn = document.getElementById('strategy-toggle');
@@ -258,6 +260,22 @@
                 // Update P&L chart
                 const now = Math.floor(Date.now() / 1000); // Use current time for the data point
                 pnlSeries.update({ time: now, value: stats.equity });
+
+                // Update Data Feed status
+                if (stats.last_tick_time) {
+                    const lastTickDate = new Date(stats.last_tick_time);
+                    const diffSeconds = (new Date() - lastTickDate) / 1000;
+                    if (diffSeconds > 15) {
+                        dataFeedStatusEl.textContent = 'DISCONNECTED';
+                        dataFeedStatusEl.className = 'negative';
+                    } else {
+                        dataFeedStatusEl.textContent = 'CONNECTED';
+                        dataFeedStatusEl.className = 'positive';
+                    }
+                } else {
+                    dataFeedStatusEl.textContent = 'AWAITING DATA';
+                    dataFeedStatusEl.className = '';
+                }
             }
 
             function addTradeRow(trade) {

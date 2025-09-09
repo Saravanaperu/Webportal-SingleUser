@@ -149,6 +149,7 @@ async def get_stats(request: Request):
     """Returns detailed daily trading statistics."""
     try:
         risk_manager = request.app.state.risk_manager
+        market_data_manager = request.app.state.market_data_manager
         stats = {
             "pnl": round(risk_manager.daily_pnl, 2),
             "equity": round(risk_manager.equity, 2),
@@ -157,7 +158,8 @@ async def get_stats(request: Request):
             "avg_win_pnl": round(risk_manager.avg_win_pnl, 2),
             "avg_loss_pnl": round(risk_manager.avg_loss_pnl, 2),
             "consecutive_losses": risk_manager.consecutive_losses,
-            "is_trading_stopped": risk_manager.is_trading_stopped
+            "is_trading_stopped": risk_manager.is_trading_stopped,
+            "last_tick_time": market_data_manager.last_tick_time
         }
         return stats
     except AttributeError:
