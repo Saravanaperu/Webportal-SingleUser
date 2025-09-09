@@ -53,27 +53,30 @@ def test_can_place_trade_initially(risk_manager):
     """Test that trading is allowed initially."""
     assert risk_manager.can_place_trade() is True
 
-def test_can_place_trade_after_max_daily_loss(risk_manager):
+@pytest.mark.asyncio
+async def test_can_place_trade_after_max_daily_loss(risk_manager):
     """Test that trading is stopped after the max daily loss is breached."""
-    max_loss = TEST_EQUITY * (settings.risk.max_daily_loss_percent / 100)
-    risk_manager.record_trade(pnl=-(max_loss + 1))
+    max_loss = TEST_EQUITY * (risk_manager.risk_params.max_daily_loss_percent / 100)
+    await risk_manager.record_trade(pnl=-(max_loss + 1))
     assert risk_manager.is_trading_stopped is True
     assert risk_manager.can_place_trade() is False
 
-def test_can_place_trade_after_consecutive_losses(risk_manager):
+@pytest.mark.asyncio
+async def test_can_place_trade_after_consecutive_losses(risk_manager):
     """Test that trading is stopped after max consecutive losses are hit."""
-    for _ in range(settings.risk.consecutive_losses_stop):
-        risk_manager.record_trade(pnl=-100)
+    for _ in range(risk_manager.risk_params.consecutive_losses_stop):
+        await risk_manager.record_trade(pnl=-100)
     assert risk_manager.is_trading_stopped is True
     assert risk_manager.can_place_trade() is False
 
-def test_pnl_and_consecutive_loss_reset_on_win(risk_manager):
+@pytest.mark.asyncio
+async def test_pnl_and_consecutive_loss_reset_on_win(risk_manager):
     """Test that a winning trade resets the consecutive loss counter."""
-    risk_manager.record_trade(pnl=-100)
-    risk_manager.record_trade(pnl=-150)
+    await risk_manager.record_trade(pnl=-100)
+    await risk_manager.record_trade(pnl=-150)
     assert risk_manager.consecutive_losses == 2
     assert risk_manager.daily_pnl == -250
 
-    risk_manager.record_trade(pnl=300)
+    await risk_manager.record_trade(pnl=300)
     assert risk_manager.consecutive_losses == 0
     assert risk_manager.daily_pnl == 50

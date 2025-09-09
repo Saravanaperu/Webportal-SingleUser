@@ -114,6 +114,12 @@ async def startup_event():
                 )
                 logger.info("Order update processing task started.")
 
+            # Start the session refresh task
+            app.state.refresh_task = asyncio.create_task(
+                refresh_connection_periodically(connector, app.state)
+            )
+            logger.info("Session refresh task started.")
+
         logger.info("✅ Trading Portal Started Successfully.")
 
     except Exception as e:
@@ -134,6 +140,68 @@ async def process_market_data(queue: asyncio.Queue):
             break
         except Exception as e:
             logger.error(f"Error processing market data: {e}", exc_info=True)
+
+async def refresh_connection_periodically(connector: AngelOneConnector, app_state):
+    """
+    Periodically reconnects to the broker to refresh the session token.
+    """
+    while True:
+        try:
+            # Sleep for 23.5 hours
+            sleep_duration = 23.5 * 60 * 60
+            logger.info(f"Session refresher is sleeping for {sleep_duration / 3600:.1f} hours.")
+            await asyncio.sleep(sleep_duration)
+
+            logger.info("Attempting to refresh broker session...")
+            is_success = await connector.reconnect()
+
+            if is_success:
+                # If reconnection is successful, we need to restart the WebSocket client
+                logger.info("Restarting WebSocket client after session refresh...")
+
+                # 1. Cancel the old tasks
+                if hasattr(app_state, 'websocket_task') and not app_state.websocket_task.done():
+                    app_state.websocket_task.cancel()
+                if hasattr(app_state, 'market_data_task') and not app_state.market_data_task.done():
+                    app_state.market_data_task.cancel()
+                if hasattr(app_state, 'order_update_task') and not app_state.order_update_task.done():
+                    app_state.order_update_task.cancel()
+
+                # 2. Start new tasks with the new ws_client instance
+                ws_client = connector.get_ws_client()
+                if ws_client:
+                    from app.core.config import settings
+                    instrument_symbols = settings.strategy.instruments
+                    exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
+
+                    tokens_to_subscribe = []
+                    for symbol in instrument_symbols:
+                        exchange = "NSE"
+                        token = instrument_manager.get_token(symbol, exchange)
+                        ws_exchange_format = exchange_map.get(exchange.upper())
+
+                        if token and ws_exchange_format:
+                            tokens_to_subscribe.append(f"{ws_exchange_format}|{token}")
+                        else:
+                            logger.warning(f"Could not find token or format for {symbol} during reconnect.")
+
+                    ws_client.set_instrument_tokens(tokens_to_subscribe)
+                    app_state.ws_client = ws_client
+                    app_state.websocket_task = asyncio.create_task(ws_client.connect())
+                    app_state.market_data_task = asyncio.create_task(process_market_data(ws_client.market_data_queue))
+                    app_state.order_update_task = asyncio.create_task(process_order_updates(app_state.order_manager, ws_client.order_update_queue))
+                    logger.info("WebSocket client and data processors restarted successfully.")
+            else:
+                logger.error("Session refresh failed. Will retry in 1 hour.")
+                await asyncio.sleep(3600) # Sleep for an hour before retrying
+
+        except asyncio.CancelledError:
+            logger.info("Connection refresher task cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error in connection refresher: {e}", exc_info=True)
+            await asyncio.sleep(3600) # Wait for an hour on unexpected error
+
 
 async def process_order_updates(order_manager: OrderManager, queue: asyncio.Queue):
     """
@@ -157,7 +225,7 @@ async def shutdown_event():
     Defines actions for graceful application shutdown.
     """
     logger.info("Application shutdown sequence initiated...")
-    tasks_to_cancel = ['strategy_task', 'websocket_task', 'market_data_task', 'order_update_task']
+    tasks_to_cancel = ['strategy_task', 'websocket_task', 'market_data_task', 'order_update_task', 'refresh_task']
     for task_name in tasks_to_cancel:
         if hasattr(app.state, task_name) and not getattr(app.state, task_name).done():
             getattr(app.state, task_name).cancel()

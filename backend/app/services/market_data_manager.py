@@ -21,12 +21,13 @@ class MarketDataManager:
             return
         self.latest_ticks = {}
         self.candle_data = defaultdict(list)
+        self.last_tick_time = None
         self._initialized = True
         logger.info("MarketDataManager initialized.")
 
     def update_tick(self, tick_data: dict):
         """
-        Updates the latest tick for a given instrument.
+        Updates the latest tick for a given instrument and records the time.
         This is where the raw WebSocket message would be parsed and stored.
         """
         from .instrument_manager import instrument_manager

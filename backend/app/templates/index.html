@@ -26,9 +26,14 @@
             </div>
             <div>
                 <h2>Daily Stats</h2>
-                <div id="daily-stats">
+                <div id="daily-stats" class="stats-grid">
                     <p>Realized P&L: <span id="realized-pnl">--</span></p>
-                    <p>Status: <span id="trading-status">RUNNING</span></p>
+                    <p>Total Trades: <span id="total-trades">--</span></p>
+                    <p>Win Rate: <span id="win-rate">--</span></p>
+                    <p>Avg. Win: <span id="avg-win">--</span></p>
+                    <p>Avg. Loss: <span id="avg-loss">--</span></p>
+                    <p>Trading Status: <span id="trading-status">RUNNING</span></p>
+                    <p>Data Feed: <span id="data-feed-status">--</span></p>
                 </div>
             </div>
         </section>
@@ -70,6 +75,11 @@
             <div id="trading-chart"></div>
         </section>
 
+        <section id="pnl-chart-section">
+            <h2>Daily P&L Chart</h2>
+            <div id="pnl-chart"></div>
+        </section>
+
         <section id="positions-and-orders">
             <div id="positions">
                 <h2>Open Positions</h2>
@@ -103,7 +113,12 @@
             const balanceEl = document.getElementById('balance');
             const marginEl = document.getElementById('margin');
             const realizedPnlEl = document.getElementById('realized-pnl');
+            const totalTradesEl = document.getElementById('total-trades');
+            const winRateEl = document.getElementById('win-rate');
+            const avgWinEl = document.getElementById('avg-win');
+            const avgLossEl = document.getElementById('avg-loss');
             const tradingStatusEl = document.getElementById('trading-status');
+            const dataFeedStatusEl = document.getElementById('data-feed-status');
             const tradesTableBody = document.getElementById('trades-table-body');
             const positionsTableBody = document.getElementById('positions-table-body');
             const strategyToggleBtn = document.getElementById('strategy-toggle');
@@ -122,7 +137,20 @@
                 timeScale: { timeVisible: true, secondsVisible: true }
             });
             const candleSeries = chart.addCandlestickSeries();
-            let lastCandleTime = null;
+
+            const pnlChartContainer = document.getElementById('pnl-chart');
+            const pnlChart = LightweightCharts.createChart(pnlChartContainer, {
+                width: pnlChartContainer.clientWidth, height: 250,
+                layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+                timeScale: { timeVisible: true, secondsVisible: false }
+            });
+            const pnlSeries = pnlChart.addAreaSeries({
+                topColor: 'rgba(46, 204, 113, 0.56)',
+                bottomColor: 'rgba(46, 204, 113, 0.04)',
+                lineColor: 'rgba(46, 204, 113, 1)',
+                lineWidth: 2
+            });
 
             // --- API & WebSockets ---
             async function fetchPositions() {
@@ -211,13 +239,42 @@
 
             // --- UI Updates ---
             function updateStats(stats) {
+                // Update text fields
                 const pnl = Number(stats.pnl).toFixed(2);
                 realizedPnlEl.textContent = `$${pnl}`;
                 realizedPnlEl.className = stats.pnl >= 0 ? 'positive' : 'negative';
+
+                totalTradesEl.textContent = stats.total_trades;
+                winRateEl.textContent = `${Number(stats.win_rate).toFixed(2)}%`;
+                avgWinEl.textContent = `$${Number(stats.avg_win_pnl).toFixed(2)}`;
+                avgWinEl.className = 'positive';
+                avgLossEl.textContent = `$${Number(stats.avg_loss_pnl).toFixed(2)}`;
+                avgLossEl.className = 'negative';
+
                 tradingStatusEl.textContent = stats.is_trading_stopped ? 'STOPPED' : 'RUNNING';
                 tradingStatusEl.className = stats.is_trading_stopped ? 'negative' : 'positive';
                 if(stats.is_trading_stopped){
                     disableControls();
+                }
+
+                // Update P&L chart
+                const now = Math.floor(Date.now() / 1000); // Use current time for the data point
+                pnlSeries.update({ time: now, value: stats.equity });
+
+                // Update Data Feed status
+                if (stats.last_tick_time) {
+                    const lastTickDate = new Date(stats.last_tick_time);
+                    const diffSeconds = (new Date() - lastTickDate) / 1000;
+                    if (diffSeconds > 15) {
+                        dataFeedStatusEl.textContent = 'DISCONNECTED';
+                        dataFeedStatusEl.className = 'negative';
+                    } else {
+                        dataFeedStatusEl.textContent = 'CONNECTED';
+                        dataFeedStatusEl.className = 'positive';
+                    }
+                } else {
+                    dataFeedStatusEl.textContent = 'AWAITING DATA';
+                    dataFeedStatusEl.className = '';
                 }
             }
 

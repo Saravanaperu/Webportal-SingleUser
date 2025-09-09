@@ -29,12 +29,11 @@ class AngelOneConnector:
         self.jwt_token = None
         self.feed_token = None
 
-    async def connect(self) -> bool:
+    async def _perform_login_and_init_clients(self) -> bool:
         """
-        Connects to AngelOne by logging in and initializing clients.
+        Private helper to perform the login and initialize all API clients.
+        This is the core logic used by both connect() and reconnect().
         """
-        logger.info("Connecting to AngelOne...")
-
         login_response = await asyncio.to_thread(self.auth_client.login)
 
         if not login_response:
@@ -53,9 +52,29 @@ class AngelOneConnector:
             client_id=self.client_id,
             feed_token=self.feed_token
         )
-
-        logger.info("AngelOne connector is ready.")
         return True
+
+    async def connect(self) -> bool:
+        """
+        Connects to AngelOne for the first time on application startup.
+        """
+        logger.info("Connecting to AngelOne...")
+        is_success = await self._perform_login_and_init_clients()
+        if is_success:
+            logger.info("AngelOne connector is ready.")
+        return is_success
+
+    async def reconnect(self) -> bool:
+        """
+        Performs a reconnection to get new session tokens.
+        """
+        logger.info("Reconnecting to AngelOne to refresh session...")
+        is_success = await self._perform_login_and_init_clients()
+        if is_success:
+            logger.info("AngelOne session refreshed successfully.")
+        else:
+            logger.error("Failed to refresh AngelOne session.")
+        return is_success
 
     def get_rest_client(self) -> AngelRestClient | None:
         """Returns the REST client instance."""

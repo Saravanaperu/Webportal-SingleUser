@@ -120,6 +120,11 @@ tbody tr:hover {
     display: flex;
     justify-content: space-between;
 }
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem 2rem; /* Row and column gap */
+}
 #account-details span, #daily-stats span {
     font-weight: bold;
     color: #2980b9;
