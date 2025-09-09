@@ -12,22 +12,13 @@ IF NOT EXIST "%VENV_DIR%" (
     GOTO:EOF
 )
 
-REM Activate the virtual environment
-ECHO Activating virtual environment...
-CALL .\%VENV_DIR%\Scripts\activate.bat
-
-REM Change to the backend directory
-ECHO Changing to backend directory...
-cd backend
-
-REM Run the Uvicorn server
+REM Run the Uvicorn server from the root directory using the venv's python
 ECHO Starting FastAPI server with Uvicorn...
 ECHO Access the dashboard at http://localhost:8000
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+.\%VENV_DIR%\Scripts\uvicorn.exe backend.app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 
-REM Deactivate on exit (e.g., Ctrl+C)
+REM The server will run until you stop it with Ctrl+C
 ECHO Server stopped.
-CALL ..\%VENV_DIR%\Scripts\deactivate.bat
 
 :EOF
 PAUSE

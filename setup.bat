@@ -30,15 +30,12 @@ ECHO Virtual environment created.
 ECHO.
 
 REM --- 3. Install Dependencies ---
-ECHO Step 3: Installing required Python packages...
-CALL .\%VENV_DIR%\Scripts\activate.bat
-pip install -r backend/requirements.txt
+ECHO Step 3: Installing required Python packages into the virtual environment...
+.\%VENV_DIR%\Scripts\pip.exe install -r backend/requirements.txt
 IF %ERRORLEVEL% NEQ 0 (
     ECHO ERROR: Failed to install dependencies from backend/requirements.txt.
-    CALL .\%VENV_DIR%\Scripts\deactivate.bat
     GOTO:EOF
 )
-CALL .\%VENV_DIR%\Scripts\deactivate.bat
 ECHO Dependencies installed successfully.
 ECHO.
 

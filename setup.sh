@@ -37,14 +37,12 @@ echo "Virtual environment created."
 echo ""
 
 # --- 3. Install Dependencies ---
-echo "Step 3: Installing required Python packages..."
-source $VENV_DIR/bin/activate
-pip3 install -r backend/requirements.txt
+echo "Step 3: Installing required Python packages into the virtual environment..."
+$VENV_DIR/bin/pip3 install -r backend/requirements.txt
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to install dependencies from backend/requirements.txt."
     exit 1
 fi
-deactivate
 echo "Dependencies installed successfully."
 echo ""
 

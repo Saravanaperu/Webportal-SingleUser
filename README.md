@@ -82,7 +82,7 @@ The script will start the web server.
 
 -   **Access the Dashboard**: Open your web browser and navigate to `http://localhost:8000`.
 -   **Control the Strategy**: Use the "Start Strategy" and "Stop Strategy" buttons on the dashboard.
--   **Monitor Activity**: Watch the "Open Positions" and "Today's Orders" tables to see the bot's activity in real-time.
+-   **Monitor Activity**: Watch the "Open Positions" and "Historical Trades" tables to see the bot's activity in real-time.
 -   **Emergency Stop**: Use the "EMERGENCY STOP" button to immediately halt all new trading activity.
 -   **Stop the Application**: To stop the server, go to the terminal where you ran the `run` script and press `Ctrl+C`.
 ---
