@@ -1,5 +1,5 @@
 import asyncio
-from smartapi import SmartWebSocket
+from SmartApi import SmartWebSocket
 from app.core.logging import logger
 
 class AngelWsClient:
