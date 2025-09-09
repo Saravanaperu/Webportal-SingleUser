@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
 from app.api.routes import router as api_router
+from app.api.ws_manager import manager as ws_manager
 from app.core.logging import logger
 from app.db.session import database, create_tables
 from app.services.angel_one import AngelOneConnector
@@ -76,6 +77,7 @@ async def startup_event():
         app.state.order_manager = order_manager
         app.state.strategy = strategy
         app.state.market_data_manager = market_data_manager
+        app.state.ws_manager = ws_manager # Add manager to state
 
         # Start the strategy and run it as a background task
         strategy.start()
@@ -112,13 +114,13 @@ async def startup_event():
 
                 # Start the market data processing task
                 app.state.market_data_task = asyncio.create_task(
-                    process_market_data(ws_client.market_data_queue)
+                    process_market_data(ws_client.market_data_queue, ws_manager)
                 )
                 logger.info("Market data processing task started.")
 
                 # Start the order update processing task
                 app.state.order_update_task = asyncio.create_task(
-                    process_order_updates(app.state.order_manager, ws_client.order_update_queue)
+                    process_order_updates(app.state.order_manager, ws_client.order_update_queue, ws_manager)
                 )
                 logger.info("Order update processing task started.")
 
@@ -134,14 +136,22 @@ async def startup_event():
         logger.critical(f"Fatal error during service initialization: {e}", exc_info=True)
 
 
-async def process_market_data(queue: asyncio.Queue):
+async def process_market_data(queue: asyncio.Queue, manager: "WebSocketManager"):
     """
-    Continuously processes market data from the WebSocket queue.
+    Continuously processes market data from the WebSocket queue and broadcasts it.
     """
     while True:
         try:
             data = await queue.get()
+            # The tick data from the broker is often a list of dicts or a dict.
+            # We process it and then broadcast a standardized format.
             market_data_manager.update_tick(data)
+
+            # Let's assume `update_tick` returns a standardized dict for the frontend.
+            # For this example, we'll just re-broadcast the raw data under a 'market' type.
+            # In a real app, you might want to standardize this.
+            await manager.broadcast({"type": "market_data", "data": data})
+
             queue.task_done()
         except asyncio.CancelledError:
             logger.info("Market data processing task cancelled.")
@@ -196,8 +206,8 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
                     ws_client.set_instrument_tokens(tokens_to_subscribe)
                     app_state.ws_client = ws_client
                     app_state.websocket_task = asyncio.create_task(ws_client.connect())
-                    app_state.market_data_task = asyncio.create_task(process_market_data(ws_client.market_data_queue))
-                    app_state.order_update_task = asyncio.create_task(process_order_updates(app_state.order_manager, ws_client.order_update_queue))
+                    app_state.market_data_task = asyncio.create_task(process_market_data(ws_client.market_data_queue, app_state.ws_manager))
+                    app_state.order_update_task = asyncio.create_task(process_order_updates(app_state.order_manager, ws_client.order_update_queue, app_state.ws_manager))
                     logger.info("WebSocket client and data processors restarted successfully.")
             else:
                 logger.error("Session refresh failed. Will retry in 1 hour.")
@@ -211,14 +221,34 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
             await asyncio.sleep(3600) # Wait for an hour on unexpected error
 
 
-async def process_order_updates(order_manager: OrderManager, queue: asyncio.Queue):
+async def process_order_updates(order_manager: OrderManager, queue: asyncio.Queue, manager: "WebSocketManager"):
     """
-    Continuously processes order updates from the WebSocket queue.
+    Continuously processes order updates from the WebSocket queue and broadcasts them.
     """
     while True:
         try:
             update = await queue.get()
+            # The order manager handles the update internally
             await order_manager.handle_order_update(update)
+
+            # Broadcast the update to all connected clients
+            await manager.broadcast({"type": "order_update", "data": update})
+
+            # Additionally, since an order update can affect P&L and stats,
+            # let's re-fetch and broadcast the latest stats.
+            risk_manager = order_manager.risk_manager
+            stats = {
+                "pnl": round(risk_manager.daily_pnl, 2),
+                "equity": round(risk_manager.equity, 2),
+                "total_trades": risk_manager.total_trades,
+                "win_rate": round(risk_manager.win_rate, 2),
+                "avg_win_pnl": round(risk_manager.avg_win_pnl, 2),
+                "avg_loss_pnl": round(risk_manager.avg_loss_pnl, 2),
+                "is_trading_stopped": risk_manager.is_trading_stopped,
+            }
+            await manager.broadcast({"type": "stats_update", "data": stats})
+
+
             queue.task_done()
         except asyncio.CancelledError:
             logger.info("Order update processing task cancelled.")

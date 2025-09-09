@@ -1,9 +1,9 @@
 import asyncio
-import numpy as np
 import yaml
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body, HTTPException
 from app.core.logging import logger
+from app.api.ws_manager import manager as ws_manager
 from app.db.session import database
 from app.core.config import StrategyConfig
 from app.models.trading import HistoricalTrade
@@ -165,42 +165,26 @@ async def get_stats(request: Request):
     except AttributeError:
         return {"error": "Services not initialized. Cannot get stats."}
 
-# === WebSocket Endpoints ===
+# === WebSocket Endpoint ===
 
-@router.websocket("/ws/market")
-async def websocket_market_endpoint(websocket: WebSocket):
-    """Pushes live simulated tick data to the client."""
-    await websocket.accept()
-    logger.info("Client connected to market WebSocket.")
+@router.websocket("/ws/data")
+async def websocket_data_endpoint(websocket: WebSocket):
+    """
+    The single WebSocket endpoint for all real-time data.
+    Handles client connection and stays open to receive broadcasted data.
+    """
+    await ws_manager.connect(websocket)
+    logger.info(f"Client {websocket.client.host}:{websocket.client.port} connected to data WebSocket.")
     try:
+        # Keep the connection alive, listening for messages from the client (if any)
+        # and allowing the manager to broadcast messages to the client.
         while True:
-            await websocket.send_json({
-                "symbol": "NIFTYBEES-EQ",
-                "price": round(151.0 + (np.random.randn() * 0.1), 2),
-                "ts": datetime.utcnow().isoformat()
-            })
-            await asyncio.sleep(1)
+            # We can optionally receive messages from the client, e.g., for commands
+            # For now, we just keep the connection open.
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        logger.info("Client disconnected from market websocket.")
+        ws_manager.disconnect(websocket)
+        logger.info(f"Client {websocket.client.host}:{websocket.client.port} disconnected.")
     except Exception as e:
-        logger.error(f"Error in market websocket: {e}", exc_info=True)
-
-@router.websocket("/ws/orders")
-async def websocket_orders_endpoint(websocket: WebSocket):
-    """Pushes order updates to the client by polling the database."""
-    await websocket.accept()
-    logger.info("Client connected to orders WebSocket.")
-    last_order_id = 0
-    try:
-        while True:
-            query = "SELECT * FROM orders WHERE id > :last_id ORDER BY id ASC"
-            new_orders = await database.fetch_all(query, values={"last_id": last_order_id})
-            if new_orders:
-                for order in new_orders:
-                    await websocket.send_json(dict(order))
-                    last_order_id = order.id
-            await asyncio.sleep(3) # Poll every 3 seconds
-    except WebSocketDisconnect:
-        logger.info("Client disconnected from orders websocket.")
-    except Exception as e:
-        logger.error(f"Error in orders websocket: {e}", exc_info=True)
+        ws_manager.disconnect(websocket)
+        logger.error(f"Error in data websocket for client {websocket.client.host}:{websocket.client.port}: {e}", exc_info=True)
