@@ -33,6 +33,38 @@
             </div>
         </section>
 
+        <section id="strategy-params">
+            <h2>Strategy Parameters</h2>
+            <form id="params-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="param-ema-short">EMA Short</label>
+                        <input type="number" id="param-ema-short" name="ema_short">
+                    </div>
+                    <div>
+                        <label for="param-ema-long">EMA Long</label>
+                        <input type="number" id="param-ema-long" name="ema_long">
+                    </div>
+                    <div>
+                        <label for="param-atr-period">ATR Period</label>
+                        <input type="number" id="param-atr-period" name="atr_period">
+                    </div>
+                    <div>
+                        <label for="param-st-period">SuperTrend Period</label>
+                        <input type="number" id="param-st-period" name="supertrend_period">
+                    </div>
+                    <div>
+                        <label for="param-st-multiplier">SuperTrend Multiplier</label>
+                        <input type="number" step="0.1" id="param-st-multiplier" name="supertrend_multiplier">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Save Parameters</button>
+                    <span id="params-status"></span>
+                </div>
+            </form>
+        </section>
+
         <section id="chart-section">
             <h2>Market Chart (Simulated)</h2>
             <div id="trading-chart"></div>
@@ -43,7 +75,7 @@
                 <h2>Open Positions</h2>
                 <table>
                     <thead>
-                        <tr><th>Symbol</th><th>Qty</th><th>Avg. Price</th><th>LTP</th><th>P&L</th></tr>
+                        <tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry Price</th><th>Live Price</th><th>P&L</th></tr>
                     </thead>
                     <tbody id="positions-table-body">
                         <!-- JS will populate this -->
@@ -73,8 +105,11 @@
             const realizedPnlEl = document.getElementById('realized-pnl');
             const tradingStatusEl = document.getElementById('trading-status');
             const ordersTableBody = document.getElementById('orders-table-body');
+            const positionsTableBody = document.getElementById('positions-table-body');
             const strategyToggleBtn = document.getElementById('strategy-toggle');
             const killSwitchBtn = document.getElementById('kill-switch');
+            const paramsForm = document.getElementById('params-form');
+            const paramsStatusEl = document.getElementById('params-status');
 
             let isStrategyRunning = false; // Initial assumption
 
@@ -90,6 +125,50 @@
             let lastCandleTime = null;
 
             // --- API & WebSockets ---
+            async function fetchPositions() {
+                try {
+                    const response = await fetch('/api/positions');
+                    const positions = await response.json();
+                    positionsTableBody.innerHTML = ''; // Clear old data
+                    if (positions && positions.length > 0) {
+                        positions.forEach(pos => {
+                            const row = document.createElement('tr');
+                            const pnlClass = pos.pnl >= 0 ? 'positive' : 'negative';
+                            row.innerHTML = `
+                                <td>${pos.symbol}</td>
+                                <td class="${pos.side.toLowerCase()}">${pos.side}</td>
+                                <td>${pos.qty}</td>
+                                <td>${Number(pos.entry_price).toFixed(2)}</td>
+                                <td>${Number(pos.live_price).toFixed(2)}</td>
+                                <td class="${pnlClass}">$${pos.pnl.toFixed(2)}</td>
+                            `;
+                            positionsTableBody.appendChild(row);
+                        });
+                    } else {
+                        positionsTableBody.innerHTML = '<tr><td colspan="6">No open positions.</td></tr>';
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch positions:", err);
+                    positionsTableBody.innerHTML = '<tr><td colspan="6">Error loading positions.</td></tr>';
+                }
+            }
+
+            async function fetchStrategyParams() {
+                try {
+                    const response = await fetch('/api/strategy/parameters');
+                    const params = await response.json();
+                    if (params && !params.error) {
+                        document.getElementById('param-ema-short').value = params.ema_short;
+                        document.getElementById('param-ema-long').value = params.ema_long;
+                        document.getElementById('param-atr-period').value = params.atr_period;
+                        document.getElementById('param-st-period').value = params.supertrend_period;
+                        document.getElementById('param-st-multiplier').value = params.supertrend_multiplier;
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch strategy params:", err);
+                }
+            }
+
             async function fetchInitialData() {
                 try {
                     const [accRes, statsRes, ordersRes] = await Promise.all([
@@ -108,6 +187,8 @@
                     }
                     ordersTableBody.innerHTML = '';
                     ordersData.forEach(order => addOrderRow(order));
+                    fetchPositions(); // Initial fetch
+                    fetchStrategyParams(); // Initial fetch
                 } catch (err) {
                     console.error("Failed to fetch initial data:", err);
                 }
@@ -157,6 +238,43 @@
             }
 
             // --- Event Listeners ---
+            paramsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                paramsStatusEl.textContent = 'Saving...';
+                paramsStatusEl.className = '';
+
+                const formData = new FormData(paramsForm);
+                const newParams = {
+                    instruments: ["NIFTYBEES-EQ"], // This is hardcoded for now, would need a UI to manage it
+                    timeframe: "1m",
+                    ema_short: parseInt(formData.get('ema_short')),
+                    ema_long: parseInt(formData.get('ema_long')),
+                    supertrend_period: parseInt(formData.get('supertrend_period')),
+                    supertrend_multiplier: parseFloat(formData.get('supertrend_multiplier')),
+                    atr_period: parseInt(formData.get('atr_period')),
+                };
+
+                try {
+                    const response = await fetch('/api/strategy/parameters', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newParams)
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        paramsStatusEl.textContent = 'Saved successfully!';
+                        paramsStatusEl.className = 'positive';
+                    } else {
+                        throw new Error(result.detail || 'Failed to save.');
+                    }
+                } catch (err) {
+                    paramsStatusEl.textContent = `Error: ${err.message}`;
+                    paramsStatusEl.className = 'negative';
+                } finally {
+                    setTimeout(() => { paramsStatusEl.textContent = '' }, 4000);
+                }
+            });
+
             strategyToggleBtn.addEventListener('click', async () => {
                 const action = isStrategyRunning ? 'stop' : 'start';
                 const response = await fetch('/api/strategy/control', {
@@ -184,7 +302,8 @@
             // --- Init ---
             fetchInitialData();
             connectWebsockets();
-            setInterval(fetchInitialData, 10000); // Periodically refresh REST data
+            setInterval(fetchPositions, 5000); // Refresh positions every 5 seconds
+            setInterval(fetchInitialData, 30000); // Periodically refresh other REST data
         });
     </script>
 </body>

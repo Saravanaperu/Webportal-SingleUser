@@ -1,94 +1,83 @@
-import websockets
-import json
 import asyncio
+from smartapi import SmartWebSocket
 from app.core.logging import logger
 
 class AngelWsClient:
     """
-    Asynchronous WebSocket client for AngelOne's market and order data feeds.
-    This is a placeholder implementation.
+    Asynchronous WebSocket client for AngelOne's market and order data feeds,
+    using the official smartapi-python library.
     """
-    # Placeholder URLs, user should verify.
-    ROOT_URL = "wss://ws-api.angelbroking.com/websocket/v2"
-    # It's common for feeds to be multiplexed over one connection.
-    FEED_URL = f"{ROOT_URL}"
 
     def __init__(self, auth_token: str, api_key: str, client_id: str, feed_token: str):
         self.auth_token = auth_token
         self.api_key = api_key
         self.client_id = client_id
         self.feed_token = feed_token
-        self.ws = None
-        # In a real app, you'd use queues to pass data to the rest of the application.
-        # self.market_data_queue = asyncio.Queue()
-        # self.order_update_queue = asyncio.Queue()
+        self.sws = SmartWebSocket(self.feed_token, self.client_id)
+        self.market_data_queue = asyncio.Queue()
+        self.order_update_queue = asyncio.Queue()
+        self.is_connected = False
+        self.subscription_task = "mw" # 'mw' for market watch, 'sfi' for order updates
+        self.instrument_tokens = ""
+
+    def _setup_callbacks(self):
+        """Assigns the callback methods to the SmartWebSocket instance."""
+        self.sws._on_open = self._on_open
+        self.sws._on_message = self._on_message
+        self.sws._on_error = self._on_error
+        self.sws._on_close = self._on_close
+
+    def _on_open(self, wsapp):
+        logger.info("WebSocket connection opened.")
+        self.is_connected = True
+        logger.info(f"Subscribing to instruments with task '{self.subscription_task}' and tokens: {self.instrument_tokens}")
+        self.sws.subscribe(self.subscription_task, self.instrument_tokens)
+
+    def _on_message(self, wsapp, message):
+        logger.debug(f"WebSocket message received: {message}")
+        # Based on typical WebSocket designs, order updates are often pushed
+        # on a separate channel or have a distinct structure.
+        # We will use a simple heuristic: if it has an 'orderid' key, it's an order update.
+        # This is an assumption and should be verified with the actual API.
+        if isinstance(message, dict) and 'orderid' in message:
+            logger.info(f"Received order update: {message}")
+            self.order_update_queue.put_nowait(message)
+        else:
+            # Otherwise, assume it's market data (a tick).
+            self.market_data_queue.put_nowait(message)
+
+    def _on_error(self, wsapp, error):
+        logger.error(f"WebSocket error: {error}")
+        self.is_connected = False
+
+    def _on_close(self, wsapp):
+        logger.info("WebSocket connection closed.")
+        self.is_connected = False
+
+    def set_instrument_tokens(self, tokens: list[str]):
+        """
+        Sets the instrument tokens to be used for subscription.
+        The format for the token string is 'exchange|token&exchange|token'.
+        Example: "nse_cm|2885&nse_cm|1594"
+        """
+        self.instrument_tokens = "&".join(tokens)
+        logger.info(f"Instrument tokens set for WebSocket: {self.instrument_tokens}")
 
     async def connect(self):
-        """Connects to the WebSocket and starts listening for messages."""
-        # Headers might be needed depending on the library and API. `websockets` uses extra_headers.
-        headers = {
-            "Authorization": self.auth_token, # Note: some APIs use bearer, some don't
-            "x-api-key": self.api_key,
-            "x-client-code": self.client_id,
-            "x-feed-token": self.feed_token
-        }
+        """
+        Connects to the WebSocket in a non-blocking way by running it in a separate thread.
+        """
+        self._setup_callbacks()
         logger.info("Attempting to connect to AngelOne WebSocket...")
         try:
-            # Using a simulated connection since we can't connect for real.
-            # In a real scenario, the following line would be active:
-            # self.ws = await websockets.connect(self.FEED_URL, extra_headers=headers)
-            logger.warning("WebSocket connection is simulated. No real data will be received.")
-            # We can simulate the connection and listening part for development.
-            await self.subscribe_to_instruments([]) # Pass empty list for simulation
-            await self.listen()
+            # The connect() method of SmartWebSocket is blocking.
+            # We run it in a separate thread to avoid blocking the main asyncio event loop.
+            await asyncio.to_thread(self.sws.connect)
         except Exception as e:
-            logger.error(f"WebSocket connection failed: {e}", exc_info=True)
+            logger.error(f"Failed to connect to WebSocket: {e}", exc_info=True)
 
-    async def subscribe_to_instruments(self, instruments: list[dict]):
-        """
-        Subscribes to market data for a list of instruments.
-        `instruments` should be a list of dicts, e.g., [{"exchangeType": 1, "tokens": ["2885"]}]
-        """
-        if not self.ws:
-            logger.warning("Cannot subscribe, WebSocket is not connected.")
-            return
-
-        subscription_payload = {
-            "correlationID": "abcde12345", # Should be unique per request
-            "action": 1, # 1 for subscribe
-            "params": {
-                "mode": 1, # 1 for LTP, 2 for Quote, 3 for Full
-                "tokenList": instruments
-            }
-        }
-        await self.ws.send(json.dumps(subscription_payload))
-        logger.info(f"Subscription request sent for: {instruments}")
-
-    async def listen(self):
-        """Listens for incoming messages and processes them."""
-        if not self.ws:
-            logger.info("Simulating WebSocket listener without connection.")
-            # In a simulation, we can just yield control.
-            while True:
-                await asyncio.sleep(10)
-            return
-
-        logger.info("Listening for WebSocket messages...")
-        while True:
-            try:
-                message = await self.ws.recv()
-                # AngelOne's WebSocket message is often binary and needs careful parsing.
-                # This is a placeholder for the parsing logic.
-                # data = self.parse_binary_message(message)
-                data = json.loads(message) # Assuming JSON for placeholder
-                logger.debug(f"Received WebSocket message: {data}")
-                # Push data to the appropriate queue here.
-            except websockets.exceptions.ConnectionClosed as e:
-                logger.warning(f"WebSocket connection closed: {e}. Attempting to reconnect...")
-                await asyncio.sleep(5) # Wait before reconnecting
-                await self.connect()
-                break # Exit current listen loop, new one will start on reconnect
-            except Exception as e:
-                logger.error(f"Error in WebSocket listener: {e}", exc_info=True)
-                # Implement more robust error handling, maybe break the loop
-                await asyncio.sleep(5)
+    async def disconnect(self):
+        """Disconnects the WebSocket client."""
+        if self.is_connected:
+            logger.info("Disconnecting from WebSocket...")
+            self.sws.close()

@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from app.core.logging import logger
 from app.angel_one_connector.auth import AngelAuth
 from app.angel_one_connector.rest_client import AngelRestClient
+from app.angel_one_connector.ws_client import AngelWsClient
 
 load_dotenv()
 
@@ -23,7 +24,10 @@ class AngelOneConnector:
 
         self.auth_client = AngelAuth(self.api_key, self.client_id, self.password, self.totp_secret)
         self.rest_client = None
+        self.ws_client = None
         self.refresh_token = None
+        self.jwt_token = None
+        self.feed_token = None
 
     async def connect(self) -> bool:
         """
@@ -38,8 +42,17 @@ class AngelOneConnector:
             return False
 
         self.refresh_token = login_response.get("refresh_token")
+        self.jwt_token = login_response.get("jwt_token")
+        self.feed_token = login_response.get("feed_token")
         smart_api_instance = self.auth_client.get_smart_api_instance()
+
         self.rest_client = AngelRestClient(smart_api_instance)
+        self.ws_client = AngelWsClient(
+            auth_token=self.jwt_token,
+            api_key=self.api_key,
+            client_id=self.client_id,
+            feed_token=self.feed_token
+        )
 
         logger.info("AngelOne connector is ready.")
         return True
@@ -47,6 +60,10 @@ class AngelOneConnector:
     def get_rest_client(self) -> AngelRestClient | None:
         """Returns the REST client instance."""
         return self.rest_client
+
+    def get_ws_client(self) -> AngelWsClient | None:
+        """Returns the WebSocket client instance."""
+        return self.ws_client
 
     async def get_account_details(self) -> dict | None:
         """Fetches account balance and margin."""
@@ -71,3 +88,9 @@ class AngelOneConnector:
         if not self.rest_client:
             return None
         return await asyncio.to_thread(self.rest_client.place_order, order_params)
+
+    async def get_candle_data(self, candle_params: dict) -> list | None:
+        """Fetches historical candle data."""
+        if not self.rest_client:
+            return None
+        return await asyncio.to_thread(self.rest_client.get_candle_data, candle_params)

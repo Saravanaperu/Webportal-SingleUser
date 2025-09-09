@@ -1,9 +1,11 @@
 import asyncio
 import numpy as np
+import yaml
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body, HTTPException
 from app.core.logging import logger
 from app.db.session import database
+from app.core.config import StrategyConfig
 
 router = APIRouter()
 
@@ -23,14 +25,37 @@ async def get_account(request: Request):
 
 @router.get("/positions")
 async def get_positions(request: Request):
-    """Returns open positions."""
+    """
+    Returns a list of internally tracked open positions with live P&L.
+    """
     try:
-        connector = request.app.state.order_manager.connector
-        if connector and connector.rest_client:
-            return await connector.get_positions()
+        order_manager = request.app.state.order_manager
+        market_data_manager = request.app.state.market_data_manager
     except AttributeError:
         logger.warning("Services not fully initialized, cannot get positions.")
-    return {"error": "Connector not available or services not initialized."}
+        return {"error": "Services not initialized."}
+
+    open_positions = order_manager.get_open_positions()
+    positions_with_pnl = []
+
+    for pos in open_positions:
+        live_price = await market_data_manager.get_latest_price(pos['symbol'])
+        pnl = 0.0
+
+        if live_price:
+            entry_price = pos['entry_price']
+            qty = pos['qty']
+            if pos['side'] == 'BUY':
+                pnl = (live_price - entry_price) * qty
+            else: # SELL
+                pnl = (entry_price - live_price) * qty
+
+        pos_copy = pos.copy()
+        pos_copy['live_price'] = live_price or pos['entry_price']
+        pos_copy['pnl'] = round(pnl, 2)
+        positions_with_pnl.append(pos_copy)
+
+    return positions_with_pnl
 
 @router.get("/orders")
 async def get_orders(request: Request):
@@ -71,6 +96,52 @@ async def control_strategy(request: Request, payload: dict = Body(...)):
         return {"error": "Invalid action. Use 'start', 'stop', or 'kill'."}
     except AttributeError:
         return {"error": "Services not initialized. Cannot control strategy."}
+
+@router.get("/strategy/parameters", response_model=StrategyConfig)
+async def get_strategy_parameters(request: Request):
+    """
+    Returns the current strategy parameters.
+    """
+    try:
+        strategy = request.app.state.strategy
+        return strategy.params
+    except AttributeError:
+        raise HTTPException(status_code=503, detail="Services not initialized.")
+
+@router.post("/strategy/parameters")
+async def set_strategy_parameters(request: Request, params: StrategyConfig):
+    """
+    Updates the strategy parameters both in the running instance and in config.yaml.
+    """
+    try:
+        # 1. Update the running strategy instance
+        strategy = request.app.state.strategy
+        strategy.update_parameters(params)
+
+        # 2. Update the config.yaml file
+        config_path = "config.yaml"
+        try:
+            with open(config_path, 'r') as f:
+                full_config = yaml.safe_load(f)
+
+            full_config['strategy'] = params.dict()
+
+            with open(config_path, 'w') as f:
+                yaml.dump(full_config, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(f"Successfully updated {config_path} with new strategy parameters.")
+
+        except Exception as e:
+            logger.error(f"Failed to write to {config_path}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to write to config file: {e}")
+
+        return {"status": "success", "message": "Strategy parameters updated successfully."}
+
+    except AttributeError:
+        raise HTTPException(status_code=503, detail="Services not initialized.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while setting parameters: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats")
 async def get_stats(request: Request):

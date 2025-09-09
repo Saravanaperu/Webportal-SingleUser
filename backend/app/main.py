@@ -12,6 +12,7 @@ from app.services.risk_manager import RiskManager
 from app.services.order_manager import OrderManager
 from app.services.strategy import TradingStrategy
 from app.services.instrument_manager import instrument_manager
+from app.services.market_data_manager import market_data_manager
 
 app = FastAPI(title="Automated Trading Portal")
 
@@ -60,20 +61,93 @@ async def startup_event():
         # Initialize core services
         risk_manager = RiskManager(account_equity=equity)
         order_manager = OrderManager(connector=connector, risk_manager=risk_manager, instrument_manager=instrument_manager)
-        strategy = TradingStrategy(order_manager=order_manager, risk_manager=risk_manager, connector=connector, instrument_manager=instrument_manager)
+        strategy = TradingStrategy(order_manager=order_manager, risk_manager=risk_manager, connector=connector)
 
         # Store services in app.state to make them accessible from API endpoints
         app.state.risk_manager = risk_manager
         app.state.order_manager = order_manager
         app.state.strategy = strategy
+        app.state.market_data_manager = market_data_manager
 
         # Start the strategy and run it as a background task
         strategy.start()
         app.state.strategy_task = asyncio.create_task(strategy.run())
         logger.info("Core services initialized and strategy background task started.")
 
+        # Start the WebSocket connection in the background
+        ws_client = connector.get_ws_client()
+        if ws_client:
+            from app.core.config import settings
+            instrument_symbols = settings.strategy.instruments
+
+            # This mapping is an assumption based on the library's documentation format.
+            # It might need adjustment based on the actual `exch_seg` values from the instrument list.
+            exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
+
+            tokens_to_subscribe = []
+            for symbol in instrument_symbols:
+                # Assuming 'NSE' for all instruments as per strategy config.
+                exchange = "NSE"
+                token = instrument_manager.get_token(symbol, exchange)
+                ws_exchange_format = exchange_map.get(exchange.upper())
+
+                if token and ws_exchange_format:
+                    tokens_to_subscribe.append(f"{ws_exchange_format}|{token}")
+                else:
+                    logger.warning(f"Could not find token or exchange format for {symbol}. It will not be subscribed via WebSocket.")
+
+            if tokens_to_subscribe:
+                ws_client.set_instrument_tokens(tokens_to_subscribe)
+                app.state.ws_client = ws_client # Store client for shutdown
+                app.state.websocket_task = asyncio.create_task(ws_client.connect())
+                logger.info("WebSocket client connection task started.")
+
+                # Start the market data processing task
+                app.state.market_data_task = asyncio.create_task(
+                    process_market_data(ws_client.market_data_queue)
+                )
+                logger.info("Market data processing task started.")
+
+                # Start the order update processing task
+                app.state.order_update_task = asyncio.create_task(
+                    process_order_updates(app.state.order_manager, ws_client.order_update_queue)
+                )
+                logger.info("Order update processing task started.")
+
+
     except Exception as e:
         logger.critical(f"Fatal error during service initialization: {e}", exc_info=True)
+
+
+async def process_market_data(queue: asyncio.Queue):
+    """
+    Continuously processes market data from the WebSocket queue.
+    """
+    while True:
+        try:
+            data = await queue.get()
+            market_data_manager.update_tick(data)
+            queue.task_done()
+        except asyncio.CancelledError:
+            logger.info("Market data processing task cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error processing market data: {e}", exc_info=True)
+
+async def process_order_updates(order_manager: OrderManager, queue: asyncio.Queue):
+    """
+    Continuously processes order updates from the WebSocket queue.
+    """
+    while True:
+        try:
+            update = await queue.get()
+            await order_manager.handle_order_update(update)
+            queue.task_done()
+        except asyncio.CancelledError:
+            logger.info("Order update processing task cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error processing order update: {e}", exc_info=True)
 
 
 @app.on_event("shutdown")
@@ -82,9 +156,15 @@ async def shutdown_event():
     Defines actions for graceful application shutdown.
     """
     logger.info("Application shutdown sequence initiated...")
-    if hasattr(app.state, 'strategy_task') and not app.state.strategy_task.done():
-        app.state.strategy_task.cancel()
-        logger.info("Strategy task cancelled.")
+    tasks_to_cancel = ['strategy_task', 'websocket_task', 'market_data_task', 'order_update_task']
+    for task_name in tasks_to_cancel:
+        if hasattr(app.state, task_name) and not getattr(app.state, task_name).done():
+            getattr(app.state, task_name).cancel()
+            logger.info(f"{task_name} cancelled.")
+
+    if hasattr(app.state, 'ws_client') and hasattr(app.state.ws_client, 'disconnect'):
+         await app.state.ws_client.disconnect()
+         logger.info("WebSocket client disconnected.")
 
     if database.is_connected:
         await database.disconnect()
