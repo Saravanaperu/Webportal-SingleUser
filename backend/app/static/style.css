@@ -131,6 +131,14 @@ tbody tr:hover {
 .negative {
     color: #e74c3c !important;
 }
+td.buy {
+    color: #27ae60;
+    font-weight: bold;
+}
+td.sell {
+    color: #e74c3c;
+    font-weight: bold;
+}
 
 #trading-chart {
     width: 100%;

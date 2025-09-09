@@ -43,7 +43,7 @@
                 <h2>Open Positions</h2>
                 <table>
                     <thead>
-                        <tr><th>Symbol</th><th>Qty</th><th>Avg. Price</th><th>LTP</th><th>P&L</th></tr>
+                        <tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry Price</th><th>Live Price</th><th>P&L</th></tr>
                     </thead>
                     <tbody id="positions-table-body">
                         <!-- JS will populate this -->
@@ -73,6 +73,7 @@
             const realizedPnlEl = document.getElementById('realized-pnl');
             const tradingStatusEl = document.getElementById('trading-status');
             const ordersTableBody = document.getElementById('orders-table-body');
+            const positionsTableBody = document.getElementById('positions-table-body');
             const strategyToggleBtn = document.getElementById('strategy-toggle');
             const killSwitchBtn = document.getElementById('kill-switch');
 
@@ -90,6 +91,34 @@
             let lastCandleTime = null;
 
             // --- API & WebSockets ---
+            async function fetchPositions() {
+                try {
+                    const response = await fetch('/api/positions');
+                    const positions = await response.json();
+                    positionsTableBody.innerHTML = ''; // Clear old data
+                    if (positions && positions.length > 0) {
+                        positions.forEach(pos => {
+                            const row = document.createElement('tr');
+                            const pnlClass = pos.pnl >= 0 ? 'positive' : 'negative';
+                            row.innerHTML = `
+                                <td>${pos.symbol}</td>
+                                <td class="${pos.side.toLowerCase()}">${pos.side}</td>
+                                <td>${pos.qty}</td>
+                                <td>${Number(pos.entry_price).toFixed(2)}</td>
+                                <td>${Number(pos.live_price).toFixed(2)}</td>
+                                <td class="${pnlClass}">$${pos.pnl.toFixed(2)}</td>
+                            `;
+                            positionsTableBody.appendChild(row);
+                        });
+                    } else {
+                        positionsTableBody.innerHTML = '<tr><td colspan="6">No open positions.</td></tr>';
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch positions:", err);
+                    positionsTableBody.innerHTML = '<tr><td colspan="6">Error loading positions.</td></tr>';
+                }
+            }
+
             async function fetchInitialData() {
                 try {
                     const [accRes, statsRes, ordersRes] = await Promise.all([
@@ -108,6 +137,7 @@
                     }
                     ordersTableBody.innerHTML = '';
                     ordersData.forEach(order => addOrderRow(order));
+                    fetchPositions(); // Initial fetch
                 } catch (err) {
                     console.error("Failed to fetch initial data:", err);
                 }
@@ -184,7 +214,8 @@
             // --- Init ---
             fetchInitialData();
             connectWebsockets();
-            setInterval(fetchInitialData, 10000); // Periodically refresh REST data
+            setInterval(fetchPositions, 5000); // Refresh positions every 5 seconds
+            setInterval(fetchInitialData, 30000); // Periodically refresh other REST data
         });
     </script>
 </body>

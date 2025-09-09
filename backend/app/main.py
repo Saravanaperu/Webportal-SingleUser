@@ -67,6 +67,7 @@ async def startup_event():
         app.state.risk_manager = risk_manager
         app.state.order_manager = order_manager
         app.state.strategy = strategy
+        app.state.market_data_manager = market_data_manager
 
         # Start the strategy and run it as a background task
         strategy.start()

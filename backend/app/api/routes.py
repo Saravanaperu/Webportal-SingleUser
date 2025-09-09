@@ -23,14 +23,37 @@ async def get_account(request: Request):
 
 @router.get("/positions")
 async def get_positions(request: Request):
-    """Returns open positions."""
+    """
+    Returns a list of internally tracked open positions with live P&L.
+    """
     try:
-        connector = request.app.state.order_manager.connector
-        if connector and connector.rest_client:
-            return await connector.get_positions()
+        order_manager = request.app.state.order_manager
+        market_data_manager = request.app.state.market_data_manager
     except AttributeError:
         logger.warning("Services not fully initialized, cannot get positions.")
-    return {"error": "Connector not available or services not initialized."}
+        return {"error": "Services not initialized."}
+
+    open_positions = order_manager.get_open_positions()
+    positions_with_pnl = []
+
+    for pos in open_positions:
+        live_price = await market_data_manager.get_latest_price(pos['symbol'])
+        pnl = 0.0
+
+        if live_price:
+            entry_price = pos['entry_price']
+            qty = pos['qty']
+            if pos['side'] == 'BUY':
+                pnl = (live_price - entry_price) * qty
+            else: # SELL
+                pnl = (entry_price - live_price) * qty
+
+        pos_copy = pos.copy()
+        pos_copy['live_price'] = live_price or pos['entry_price']
+        pos_copy['pnl'] = round(pnl, 2)
+        positions_with_pnl.append(pos_copy)
+
+    return positions_with_pnl
 
 @router.get("/orders")
 async def get_orders(request: Request):
