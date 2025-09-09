@@ -1,6 +1,5 @@
 from app.core.config import settings
 from app.core.logging import logger
-from .notifier import notifier
 
 class RiskManager:
     """
@@ -22,13 +21,11 @@ class RiskManager:
         logger.info(f"Max daily loss set to: -${self.max_daily_loss_value:.2f}")
         logger.info(f"Stop trading after {self.risk_params.consecutive_losses_stop} consecutive losses.")
 
-    async def stop_trading(self, reason: str):
+    def stop_trading(self, reason: str):
         """Activates the kill switch to stop all new trading activity."""
         if not self.is_trading_stopped:
             self.is_trading_stopped = True
-            message = f"🛑 *STOPPING TRADING*\nReason: {reason}"
-            logger.critical(message)
-            await notifier.send_message(message)
+            logger.critical(f"STOPPING TRADING. Reason: {reason}")
 
     def record_trade(self, pnl: float):
         """Updates daily P&L and checks if any risk limits have been breached."""
@@ -38,16 +35,16 @@ class RiskManager:
         if pnl < 0:
             self.consecutive_losses += 1
         else:
+            # Reset on a winning trade
             self.consecutive_losses = 0
 
         logger.info(f"Consecutive losses: {self.consecutive_losses}")
 
-        # This method is now async because stop_trading is async
         if self.daily_pnl <= -self.max_daily_loss_value:
-            await self.stop_trading(f"Max daily loss limit of ${self.max_daily_loss_value:.2f} reached.")
+            self.stop_trading(f"Max daily loss limit of ${self.max_daily_loss_value:.2f} reached.")
 
         if self.consecutive_losses >= self.risk_params.consecutive_losses_stop:
-            await self.stop_trading(f"Max consecutive loss limit of {self.risk_params.consecutive_losses_stop} reached.")
+            self.stop_trading(f"Max consecutive loss limit of {self.risk_params.consecutive_losses_stop} reached.")
 
     def calculate_position_size(self, entry_price: float, stop_loss_price: float, atr: float) -> int:
         """
