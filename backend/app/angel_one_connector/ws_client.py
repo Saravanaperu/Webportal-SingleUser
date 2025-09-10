@@ -1,4 +1,5 @@
 import asyncio
+import types
 from SmartApi import SmartWebSocket
 from ..core.logging import logger
 
@@ -50,8 +51,8 @@ class AngelWsClient:
         logger.error(f"WebSocket error: {error}")
         self.is_connected = False
 
-    def _on_close(self, wsapp):
-        logger.info("WebSocket connection closed.")
+    def _on_close(self, wsapp, close_status_code, close_msg):
+        logger.info(f"WebSocket connection closed with code: {close_status_code}, message: {close_msg}")
         self.is_connected = False
 
     def set_instrument_tokens(self, tokens: list[str]):
@@ -66,8 +67,29 @@ class AngelWsClient:
     async def connect(self):
         """
         Connects to the WebSocket in a non-blocking way by running it in a separate thread.
+        This method also applies monkey-patches to the SmartWebSocket instance to fix
+        bugs in the smartapi-python library.
         """
         self._setup_callbacks()
+
+        # Monkey-patch 1: Update the WebSocket URL to the correct one.
+        self.sws.ROOT_URI = 'wss://smartapisocket.angelone.in/smart-stream'
+        logger.info(f"Monkey-patched WebSocket URL to: {self.sws.ROOT_URI}")
+
+        # Monkey-patch 2: Fix the on_close callback signature.
+        # The smartapi-python library has a bug where its __on_close method does not
+        # accept the close_status_code and close_msg arguments from the underlying
+        # websocket-client library, causing a TypeError.
+        def new_on_close(smart_ws_instance, ws, close_status_code, close_msg):
+            # Replicate the original library's logic
+            smart_ws_instance.HB_THREAD_FLAG = True
+            # Call the user-defined _on_close method with the correct signature
+            smart_ws_instance._on_close(ws, close_status_code, close_msg)
+
+        self.sws.__on_close = types.MethodType(new_on_close, self.sws)
+        logger.info("Monkey-patched __on_close method of SmartWebSocket instance.")
+
+
         logger.info("Attempting to connect to AngelOne WebSocket...")
         try:
             # The connect() method of SmartWebSocket is blocking.
