@@ -46,6 +46,14 @@ if [ ! -f "$VENV_DIR/bin/pip" ]; then
     exit 1
 fi
 
+# Upgrade pip and setuptools first to handle modern build systems
+$VENV_DIR/bin/python3 -m pip install --upgrade pip setuptools wheel
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to upgrade pip and setuptools."
+    exit 1
+fi
+
+# Now, install the project dependencies
 $VENV_DIR/bin/pip install -r backend/requirements.txt
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to install dependencies from backend/requirements.txt."

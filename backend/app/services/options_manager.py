@@ -7,6 +7,7 @@ import numpy as np
 
 from ..core.logging import logger
 from ..core.config import settings
+from ..core.constants import INDEX_SYMBOLS
 
 class OptionsManager:
     """Manages options chain, strike selection, and Greeks calculations for scalping."""
@@ -15,9 +16,10 @@ class OptionsManager:
         self.rest_client = rest_client
         self.instrument_manager = instrument_manager
         self.options_chain = {}
-        self.spot_prices = {}
+        self.spot_prices = {}  # Cache for spot prices: {index: (price, timestamp)}
         self.atm_strikes = {}
         self.last_chain_update = {}
+        self.spot_price_cache_ttl = timedelta(seconds=2)
         
     # Class constants
     SPOT_SYMBOLS = {
@@ -26,20 +28,19 @@ class OptionsManager:
         'FINNIFTY': 'FINNIFTY'
     }
     
-    SCORING_WEIGHTS = {
-        'DELTA_MULTIPLIER': 100,
-        'GAMMA_MULTIPLIER': 10000,
-        'THETA_BASE': 10,
-        'PREMIUM_TARGET': 50,
-        'PREMIUM_DIVISOR': 10,
-        'MONEYNESS_DIVISOR': 100
-    }
     
     async def get_spot_price(self, index: str) -> Optional[float]:
-        """Get current spot price of the underlying index."""
+        """Get current spot price of the underlying index, with caching."""
+        now = datetime.utcnow()
+
+        # Check cache first
+        if index in self.spot_prices:
+            price, ts = self.spot_prices[index]
+            if now - ts < self.spot_price_cache_ttl:
+                return price
+
         try:
-            
-            spot_symbol = self.SPOT_SYMBOLS.get(index)
+            spot_symbol = INDEX_SYMBOLS.get(index)
             if not spot_symbol:
                 return None
                 
@@ -47,11 +48,17 @@ class OptionsManager:
             response = await self.rest_client.get_ltp(spot_symbol, 'NSE')
             if response and 'data' in response:
                 ltp = float(response['data']['ltp'])
-                self.spot_prices[index] = ltp
+                # Update cache
+                self.spot_prices[index] = (ltp, now)
                 return ltp
                 
         except Exception as e:
-            logger.error(f"Error getting spot price for {index}: {e}")
+            logger.error(f"Error getting spot price for {index}: {e}", exc_info=True)
+
+        # Return stale price if API fails but a cached value exists
+        if index in self.spot_prices:
+            return self.spot_prices[index][0]
+
         return None
     
     def calculate_atm_strike(self, spot_price: float, index: str) -> int:
@@ -82,27 +89,31 @@ class OptionsManager:
                 price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
                 
             return max(0, price)
-        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
-            logger.error(f"Error calculating Black-Scholes price: {e}")
+        except (ValueError, ZeroDivisionError) as e:
+            logger.error(f"Black-Scholes calculation error for S={S}, K={K}, T={T}, sigma={sigma}: {e}", exc_info=True)
+            return 0
+        except Exception as e:
+            logger.error(f"An unexpected error occurred in Black-Scholes calculation: {e}", exc_info=True)
             return 0
     
     def calculate_greeks(self, S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> Dict:
         """Calculate option Greeks."""
+        greeks = {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
         try:
-            if T <= 0:
-                return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
-                
+            if T <= 0 or S <= 0 or K <= 0 or sigma <=0:
+                return greeks
+
             d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
             d2 = d1 - sigma * np.sqrt(T)
             
             # Delta
             if option_type == 'CE':
-                delta = norm.cdf(d1)
+                greeks['delta'] = norm.cdf(d1)
             else:
-                delta = -norm.cdf(-d1)
+                greeks['delta'] = -norm.cdf(-d1)
             
             # Gamma
-            gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+            greeks['gamma'] = norm.pdf(d1) / (S * sigma * np.sqrt(T))
             
             # Theta (per day)
             if option_type == 'CE':
@@ -111,19 +122,19 @@ class OptionsManager:
             else:
                 theta = (-S * norm.pdf(d1) * sigma / (2 * np.sqrt(T)) + 
                         r * K * np.exp(-r * T) * norm.cdf(-d2)) / 365
-            
+            greeks['theta'] = theta
+
             # Vega (per 1% change in IV)
-            vega = S * norm.pdf(d1) * np.sqrt(T) / 100
+            greeks['vega'] = S * norm.pdf(d1) * np.sqrt(T) / 100
             
-            return {
-                'delta': round(delta, 4),
-                'gamma': round(gamma, 6),
-                'theta': round(theta, 4),
-                'vega': round(vega, 4)
-            }
-        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
-            logger.error(f"Error calculating Greeks: {e}")
-            return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
+            return {k: round(v, 6) for k, v in greeks.items()}
+
+        except (ValueError, ZeroDivisionError) as e:
+            logger.error(f"Greeks calculation error for S={S}, K={K}, T={T}, sigma={sigma}: {e}", exc_info=True)
+            return greeks
+        except Exception as e:
+            logger.error(f"An unexpected error occurred in Greeks calculation: {e}", exc_info=True)
+            return greeks
     
     async def get_best_strikes_for_scalping(self, index: str, direction: str) -> List[Dict]:
         """Get best option strikes for scalping based on direction and Greeks."""
@@ -165,7 +176,7 @@ class OptionsManager:
                 
                 # Calculate Greeks
                 T = self.get_time_to_expiry(expiry)
-                greeks = self.calculate_greeks(spot_price, strike, T, 0.06, 0.2, option_type)
+                greeks = self.calculate_greeks(spot_price, strike, T, settings.trading.risk_free_rate, settings.trading.default_volatility, option_type)
                 
                 # Filter by Greeks
                 if (abs(greeks['delta']) < settings.strategy.min_delta or 
@@ -194,30 +205,44 @@ class OptionsManager:
             return []
     
     def calculate_scalping_score(self, greeks: Dict, ltp: float, strike: int, atm_strike: int) -> float:
-        """Calculate scalping suitability score for an option."""
+        """
+        Calculate scalping suitability score for an option based on a weighted formula
+        of its Greeks, premium, and moneyness.
+        """
         try:
-            # Higher delta = better directional movement
-            delta_score = abs(greeks['delta']) * self.SCORING_WEIGHTS['DELTA_MULTIPLIER']
+            weights = settings.strategy.scoring_weights
+
+            # 1. Delta Score (30% weight): Prefers higher delta for better directional moves.
+            delta_score = abs(greeks['delta']) * weights.delta_multiplier
             
-            # Higher gamma = better acceleration
-            gamma_score = greeks['gamma'] * self.SCORING_WEIGHTS['GAMMA_MULTIPLIER']
+            # 2. Gamma Score (25% weight): Prefers higher gamma for faster acceleration.
+            gamma_score = greeks['gamma'] * weights.gamma_multiplier
             
-            # Lower theta decay = better for short holds
-            theta_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] + greeks['theta'])  # Theta is negative
+            # 3. Theta Score (20% weight): Penalizes high theta decay.
+            theta_score = max(0, weights.theta_base + greeks['theta'])  # Theta is negative, so we add.
             
-            # Moderate premium preferred
-            premium_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] - abs(ltp - self.SCORING_WEIGHTS['PREMIUM_TARGET']) / self.SCORING_WEIGHTS['PREMIUM_DIVISOR'])
+            # 4. Premium Score (15% weight): Prefers premiums closer to a target value.
+            premium_distance = abs(ltp - weights.premium_target)
+            premium_score = max(0, weights.theta_base - (premium_distance / weights.premium_divisor))
             
-            # Slight preference for ATM/ITM
-            moneyness_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] - abs(strike - atm_strike) / self.SCORING_WEIGHTS['MONEYNESS_DIVISOR'])
+            # 5. Moneyness Score (10% weight): Slightly prefers options closer to ATM.
+            moneyness_distance = abs(strike - atm_strike)
+            moneyness_score = max(0, weights.theta_base - (moneyness_distance / weights.moneyness_divisor))
             
-            total_score = (delta_score * 0.3 + gamma_score * 0.25 + 
-                          theta_score * 0.2 + premium_score * 0.15 + 
-                          moneyness_score * 0.1)
+            # Combine scores with their respective weights
+            total_score = (delta_score * 0.3 +
+                           gamma_score * 0.25 +
+                           theta_score * 0.2 +
+                           premium_score * 0.15 +
+                           moneyness_score * 0.1)
             
             return round(total_score, 2)
-        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
-            logger.error(f"Error calculating scalping score: {e}")
+
+        except (KeyError, TypeError) as e:
+            logger.error(f"Error calculating scalping score due to missing key: {e}", exc_info=True)
+            return 0
+        except (ValueError, ZeroDivisionError) as e:
+            logger.error(f"Numerical error in calculating scalping score: {e}", exc_info=True)
             return 0
     
     def get_nearest_expiry(self) -> Optional[str]:
@@ -270,28 +295,6 @@ class OptionsManager:
             logger.error(f"Error getting option data for {symbol}: {e}")
         return None
     
-    def is_high_volume_session(self) -> bool:
-        """Check if current time is in high volume trading session."""
-        now = datetime.now().time()
-        
-        for session in settings.trading.high_volume_sessions:
-            start = datetime.strptime(session['start'], '%H:%M').time()
-            end = datetime.strptime(session['end'], '%H:%M').time()
-            if start <= now <= end:
-                return True
-        return False
-    
-    def should_avoid_trading(self) -> bool:
-        """Check if current time is in avoid trading session."""
-        now = datetime.now().time()
-        
-        for session in settings.trading.avoid_sessions:
-            start = datetime.strptime(session['start'], '%H:%M').time()
-            end = datetime.strptime(session['end'], '%H:%M').time()
-            if start <= now <= end:
-                return True
-        return False
-
 # Global instance
 options_manager = None
 
