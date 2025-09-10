@@ -1,5 +1,7 @@
 from typing import Dict, Optional
 from ..core.logging import logger
+from ..core.config import settings
+from datetime import datetime, timedelta
 
 class InstrumentManager:
     def __init__(self):
@@ -10,16 +12,56 @@ class InstrumentManager:
         self.is_reverse_map_built = False
 
     async def load_instruments(self, rest_client):
-        """Load instruments from the broker API"""
+        """
+        Load instruments from the broker API and filter for relevant F&O contracts.
+        """
         try:
-            instruments = await rest_client.get_instrument_list()
-            if instruments:
-                self.instruments = instruments
-                logger.info(f"Loaded {len(instruments)} instruments")
-            else:
-                logger.error("Failed to load instruments")
+            raw_instruments = await rest_client.get_instrument_list()
+            if not raw_instruments:
+                logger.error("Failed to load instruments or instrument list is empty.")
+                return
+
+            logger.info(f"Loaded {len(raw_instruments)} raw instruments. Filtering now...")
+
+            trade_indices = settings.strategy.trade_indices
+            instrument_types = settings.strategy.instrument_types
+
+            pre_filtered_instruments = [
+                inst for inst in raw_instruments
+                if inst.get('exch_seg') == 'NFO' and \
+                   inst.get('name') in trade_indices and \
+                   inst.get('instrumenttype') in instrument_types and \
+                   inst.get('expiry')
+            ]
+
+            logger.info(f"Found {len(pre_filtered_instruments)} instruments after basic filtering by name and type.")
+
+            # Further filter by expiry date (e.g., contracts expiring within the next 45 days)
+            # This is a heuristic to focus on active, near-term contracts.
+            final_instruments = []
+            today = datetime.now().date()
+            expiry_limit = today + timedelta(days=45)
+
+            for inst in pre_filtered_instruments:
+                try:
+                    expiry_date = datetime.strptime(inst['expiry'], '%d%b%Y').date()
+                    if today <= expiry_date <= expiry_limit:
+                        final_instruments.append(inst)
+                except (ValueError, KeyError):
+                    # Skip instruments with unparsable expiry dates
+                    continue
+
+            self.instruments = final_instruments
+            logger.info(f"Loaded {len(self.instruments)} instruments after all filtering.")
+
+            # Reset and rebuild the maps with the filtered list
+            self.is_map_built = False
+            self.is_reverse_map_built = False
+            self._build_map()
+            self._build_reverse_map()
+
         except Exception as e:
-            logger.error(f"Error loading instruments: {e}")
+            logger.error(f"Error during instrument loading and filtering: {e}", exc_info=True)
 
     def _build_map(self):
         """Build symbol to token mapping"""
@@ -48,19 +90,12 @@ class InstrumentManager:
         
         self.is_reverse_map_built = True
 
-    def get_token(self, symbol: str, exchange: str = "NSE") -> Optional[str]:
-        """Get token for a symbol"""
+    def get_token(self, symbol: str, exchange: str = "NFO") -> Optional[str]:
+        """Get token for a symbol using an exact match from the filtered list."""
         if not self.is_map_built:
             self._build_map()
         
-        # Try exact match first
-        token = self.symbol_to_token.get(symbol)
-        if token:
-            return token
-        
-        # Try with exchange suffix
-        symbol_with_exchange = f"{symbol}-EQ"
-        return self.symbol_to_token.get(symbol_with_exchange)
+        return self.symbol_to_token.get(symbol)
 
     def get_symbol(self, token: str) -> Optional[str]:
         """Get symbol for a token"""

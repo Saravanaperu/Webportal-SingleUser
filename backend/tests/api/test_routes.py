@@ -12,7 +12,8 @@ def mock_app_state():
     """Mocks the app.state for injecting dependencies into the API."""
     mock_strategy = MagicMock()
     mock_strategy.params = StrategyConfig(
-        instruments=["TEST-EQ"],
+        trade_indices=["NIFTY"],
+        instrument_types=["FUTIDX", "OPTIDX"],
         timeframe="1m",
         ema_short=9,
         ema_long=21,
@@ -72,7 +73,8 @@ async def test_set_strategy_parameters_endpoint(mock_app_state):
     Tests the POST /api/strategy/parameters endpoint.
     """
     new_params = {
-        "instruments": ["TEST-EQ"],
+        "trade_indices": ["BANKNIFTY"],
+        "instrument_types": ["OPTIDX"],
         "timeframe": "1m",
         "ema_short": 10,
         "ema_long": 22,

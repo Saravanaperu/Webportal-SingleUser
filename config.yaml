@@ -1,6 +1,8 @@
 strategy:
-  instruments:
-  - TEST-EQ
+  trade_indices:
+  - BANKNIFTY
+  instrument_types:
+  - OPTIDX
   timeframe: 1m
   ema_short: 10
   ema_long: 22
