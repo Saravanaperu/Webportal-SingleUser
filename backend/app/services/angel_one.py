@@ -1,9 +1,9 @@
 import asyncio
-from app.core.config import settings
-from app.core.logging import logger
-from app.angel_one_connector.auth import AngelAuth
-from app.angel_one_connector.rest_client import AngelRestClient
-from app.angel_one_connector.ws_client import AngelWsClient
+from ..core.config import settings
+from ..core.logging import logger
+from ..angel_one_connector.auth import AngelAuth
+from ..angel_one_connector.rest_client import AngelRestClient
+from ..angel_one_connector.ws_client import AngelWsClient
 
 class AngelOneConnector:
     """

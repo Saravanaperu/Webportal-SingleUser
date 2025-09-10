@@ -1,8 +1,8 @@
 from datetime import datetime
-from app.core.logging import logger
-from app.services.risk_manager import RiskManager
-from app.models.trading import Order, Trade, HistoricalTrade
-from app.db.session import database
+from ..core.logging import logger
+from .risk_manager import RiskManager
+from ..models.trading import Order, Trade, HistoricalTrade
+from ..db.session import database
 
 class OrderManager:
     """

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
-from app.db.base import Base
+from ..db.base import Base
 
 class Candle(Base):
     __tablename__ = "candles"

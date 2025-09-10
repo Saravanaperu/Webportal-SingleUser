@@ -1,4 +1,4 @@
-from app.core.logging import logger
+from ..core.logging import logger
 from collections import defaultdict
 
 class InstrumentManager:
@@ -15,6 +15,7 @@ class InstrumentManager:
             return
         self.instrument_list = []
         self.symbol_to_token_map = defaultdict(dict)
+        self.is_map_built = False # Add a flag to track if the map is built
         self._initialized = True
         logger.info("InstrumentManager initialized.")
 
@@ -44,12 +45,13 @@ class InstrumentManager:
             exchange = instrument.get("exch_seg")
             if symbol and token and exchange:
                 self.symbol_to_token_map[symbol][exchange] = token
+        self.is_map_built = True # Set the flag to True after building
 
     def get_token(self, symbol: str, exchange: str = "NSE") -> str | None:
         """
         Gets the token for a given symbol and exchange.
         """
-        if not self.symbol_to_token_map:
+        if not self.is_map_built:
             logger.warning("Instrument map is not built. Call load_instruments first.")
             return None
 
@@ -91,7 +93,7 @@ class InstrumentManager:
         """
         Gets the configuration for a given underlying from the settings file.
         """
-        from app.core.config import settings
+        from ..core.config import settings
         return settings.underlying_instruments.get(underlying)
 
 # Create a single instance of the instrument manager

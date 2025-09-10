@@ -5,16 +5,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
-from app.api.routes import router as api_router
-from app.api.ws_manager import manager as ws_manager
-from app.core.logging import logger
-from app.db.session import database, create_tables
-from app.services.angel_one import AngelOneConnector
-from app.services.risk_manager import RiskManager
-from app.services.order_manager import OrderManager
-from app.services.strategy import TradingStrategy
-from app.services.instrument_manager import instrument_manager
-from app.services.market_data_manager import market_data_manager
+from .api.routes import router as api_router
+from .api.ws_manager import manager as ws_manager
+from .core.logging import logger
+from .db.session import database, create_tables
+from .services.angel_one import AngelOneConnector
+from .services.risk_manager import RiskManager
+from .services.order_manager import OrderManager
+from .services.strategy import TradingStrategy
+from .services.instrument_manager import instrument_manager
+from .services.market_data_manager import market_data_manager
 
 app = FastAPI(title="Automated Trading Portal")
 
@@ -79,15 +79,15 @@ async def startup_event():
         app.state.market_data_manager = market_data_manager
         app.state.ws_manager = ws_manager # Add manager to state
 
-        # Start the strategy and run it as a background task
-        strategy.start()
-        app.state.strategy_task = asyncio.create_task(strategy.run())
-        logger.info("Core services initialized and strategy background task started.")
+        # The strategy is no longer started automatically.
+        # The user must start it via the API endpoint.
+        app.state.strategy_task = None # Explicitly set to None on startup
+        logger.info("Core services initialized. Strategy is ready to be started by the user.")
 
         # Start the WebSocket connection in the background
         ws_client = connector.get_ws_client()
         if ws_client:
-            from app.core.config import settings
+            from .core.config import settings
             instrument_symbols = settings.strategy.instruments
 
             # This mapping is an assumption based on the library's documentation format.
@@ -188,7 +188,7 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
                 # 2. Start new tasks with the new ws_client instance
                 ws_client = connector.get_ws_client()
                 if ws_client:
-                    from app.core.config import settings
+                    from .core.config import settings
                     instrument_symbols = settings.strategy.instruments
                     exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
 

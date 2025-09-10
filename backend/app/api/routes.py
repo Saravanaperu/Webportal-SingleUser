@@ -2,11 +2,11 @@ import asyncio
 import yaml
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body, HTTPException
-from app.core.logging import logger
-from app.api.ws_manager import manager as ws_manager
-from app.db.session import database
-from app.core.config import StrategyConfig
-from app.models.trading import HistoricalTrade
+from ..core.logging import logger
+from .ws_manager import manager as ws_manager
+from ..db.session import database
+from ..core.config import StrategyConfig
+from ..models.trading import HistoricalTrade
 
 router = APIRouter()
 
@@ -68,28 +68,38 @@ async def get_trades(request: Request):
 @router.post("/strategy/control")
 async def control_strategy(request: Request, payload: dict = Body(...)):
     """
-    Controls the trading strategy. Actions: "start", "stop", "kill".
+    Controls the trading strategy background task. Actions: "start", "stop", "kill".
     """
     action = payload.get("action")
     try:
         strategy = request.app.state.strategy
         risk_manager = request.app.state.risk_manager
+        strategy_task = getattr(request.app.state, 'strategy_task', None)
 
         if action == "start":
-            if not strategy.is_running:
+            if not strategy.is_running and (strategy_task is None or strategy_task.done()):
                 strategy.start()
-                return {"status": "Strategy started."}
+                # Create a new background task
+                request.app.state.strategy_task = asyncio.create_task(strategy.run())
+                logger.info("Strategy background task started via API.")
+                return {"status": "Strategy started successfully."}
             return {"status": "Strategy is already running."}
 
         elif action == "stop":
-            if strategy.is_running:
+            if strategy.is_running and strategy_task and not strategy_task.done():
                 strategy.stop()
+                # Cancel the background task
+                strategy_task.cancel()
+                logger.info("Strategy background task stopped via API.")
                 return {"status": "Strategy stopped."}
-            return {"status": "Strategy is already stopped."}
+            return {"status": "Strategy is already stopped or task not found."}
 
         elif action == "kill":
             await risk_manager.stop_trading("Manual kill switch activated.")
-            strategy.stop()
+            if strategy.is_running and strategy_task and not strategy_task.done():
+                strategy.stop()
+                strategy_task.cancel()
+                logger.info("Strategy background task KILLED via API.")
             # In a real app, you would also trigger closing all positions.
             # await request.app.state.order_manager.close_all_positions()
             return {"status": "EMERGENCY STOP ACTIVATED. All trading halted."}
@@ -97,6 +107,9 @@ async def control_strategy(request: Request, payload: dict = Body(...)):
         return {"error": "Invalid action. Use 'start', 'stop', or 'kill'."}
     except AttributeError:
         return {"error": "Services not initialized. Cannot control strategy."}
+    except Exception as e:
+        logger.error(f"Error in strategy control: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 @router.get("/strategy/parameters", response_model=StrategyConfig)
 async def get_strategy_parameters(request: Request):
