@@ -123,16 +123,13 @@ def load_config(path: Path = CONFIG_FILE) -> dict:
         with open(path, "r") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        logger.error(f"Config file not found: {path}")
+        print(f"Config file not found: {path}")
         raise
     except yaml.YAMLError as e:
-        logger.error(f"Error parsing config file: {e}")
+        print(f"Error parsing config file: {e}")
         raise
 
 # Load config from root directory
-config_data = load_config()
-
-# Load config from root directory and merge with environment variables
 config_data = load_config()
 
 # Pydantic will automatically use environment variables to override values in BaseSettings.

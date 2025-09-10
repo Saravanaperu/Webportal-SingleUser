@@ -20,6 +20,14 @@ class OptionsScalpingStrategy:
     Advanced options scalping strategy optimized for Indian markets.
     Focuses on high-probability setups with proper Greeks management.
     """
+    
+    # Class constants to avoid duplication
+    INDEX_SYMBOLS = {
+        'BANKNIFTY': 'BANKNIFTY-INDEX',
+        'NIFTY': 'NIFTY 50',
+        'FINNIFTY': 'FINNIFTY'
+    }
+    
     def __init__(self, order_manager: OrderManager, risk_manager: RiskManager, connector):
         logger.info("Initializing Options Scalping Strategy...")
         self.order_manager = order_manager
@@ -32,7 +40,10 @@ class OptionsScalpingStrategy:
         self.index_candle_history = {index: pd.DataFrame() for index in self.trade_indices}
         self.options_manager = get_options_manager(connector.rest_client, instrument_manager)
         self.last_signal_time = {}
-        self.signal_cooldown = 30  # seconds between signals for same index
+        self.signal_cooldown = 30
+        # Cache parsed trading hours
+        self.start_time = time.fromisoformat(settings.trading.hours['start'])
+        self.end_time = time.fromisoformat(settings.trading.hours['end'])
 
     def update_parameters(self, new_params: StrategyConfig):
         """
@@ -49,21 +60,13 @@ class OptionsScalpingStrategy:
         """
         logger.info("Warming up options scalping indicators...")
         
-        # Map indices to their spot symbols for data
-        index_symbols = {
-            'BANKNIFTY': 'BANKNIFTY-INDEX',
-            'NIFTY': 'NIFTY 50', 
-            'FINNIFTY': 'FINNIFTY'
-        }
-        
         for index in self.trade_indices:
             try:
-                symbol = index_symbols.get(index, index)
-                query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.desc()).limit(100)
+                symbol = self.INDEX_SYMBOLS.get(index, index)
+                query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.asc()).limit(100)
                 results = await database.fetch_all(query)
                 
                 if results:
-                    results.reverse()
                     df = pd.DataFrame(results)
                     df['timestamp'] = pd.to_datetime(df['ts'])
                     df.set_index('timestamp', inplace=True)
@@ -113,7 +116,7 @@ class OptionsScalpingStrategy:
         # Volume analysis
         if 'volume' in df.columns:
             df['volume_ma'] = df['volume'].rolling(10).mean()
-            df['volume_surge'] = df['volume'] / df['volume_ma']
+            df['volume_surge'] = np.where(df['volume_ma'] > 0, df['volume'] / df['volume_ma'], 1.0)
         else:
             df['volume_surge'] = 1.0
             
@@ -229,13 +232,7 @@ class OptionsScalpingStrategy:
         for index in self.trade_indices:
             try:
                 # Update index candle data
-                index_symbols = {
-                    'BANKNIFTY': 'BANKNIFTY-INDEX',
-                    'NIFTY': 'NIFTY 50',
-                    'FINNIFTY': 'FINNIFTY'
-                }
-                
-                symbol = index_symbols.get(index, index)
+                symbol = self.INDEX_SYMBOLS.get(index, index)
                 new_candle_df = await market_data_manager.get_1m_candle(symbol)
                 
                 if new_candle_df is not None:
@@ -331,12 +328,12 @@ class OptionsScalpingStrategy:
                     
                 # 3. Theta decay protection
                 elif time_in_trade > settings.risk.theta_decay_exit_minutes:
-                    if pnl_pct < 10:  # Exit if not profitable after theta decay time
+                    if pnl_pct < settings.risk.get('theta_decay_min_profit', 10):
                         should_exit = True
                         exit_reason = "THETA_DECAY"
                         
                 # 4. Quick profit taking for high confidence trades
-                elif confidence >= 9 and pnl_pct >= 25 and time_in_trade >= 2:
+                elif confidence >= 9 and pnl_pct >= settings.risk.get('quick_profit_threshold', 25) and time_in_trade >= settings.risk.get('quick_profit_min_time', 2):
                     should_exit = True
                     exit_reason = "QUICK_PROFIT"
                     
@@ -345,7 +342,7 @@ class OptionsScalpingStrategy:
                     trail_pct = settings.risk.trailing_stop.trail_by_percent / 100
                     new_sl = live_price * (1 - trail_pct)
                     
-                    current_sl = position.get('sl', entry_price * 0.6)
+                    current_sl = position.get('sl', entry_price * (1 - settings.risk.stop_loss_percent / 100))
                     if new_sl > current_sl:
                         self.order_manager.update_position_sl(position, new_sl)
                         logger.info(f"Updated trailing SL for {symbol}: {new_sl:.2f}")
@@ -385,11 +382,9 @@ class OptionsScalpingStrategy:
                     continue
 
                 now_time = datetime.now().time()
-                start_time = time.fromisoformat(settings.trading.hours['start'])
-                end_time = time.fromisoformat(settings.trading.hours['end'])
 
                 # Check trading hours
-                if not (start_time <= now_time < end_time):
+                if not (self.start_time <= now_time < self.end_time):
                     # Close all positions outside trading hours
                     open_positions = self.order_manager.get_open_positions()
                     if open_positions:

@@ -14,7 +14,7 @@ fi
 
 # Change to the backend directory
 echo "Changing to backend directory..."
-cd backend
+cd backend || { echo "Failed to change to backend directory"; exit 1; }
 
 # Run the Uvicorn server from within the backend directory
 echo "Starting FastAPI server with Uvicorn..."

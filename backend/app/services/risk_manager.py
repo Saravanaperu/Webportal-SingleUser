@@ -57,6 +57,10 @@ class RiskManager:
 
     async def record_trade(self, pnl: float):
         """Updates daily P&L and all other statistics, then checks risk limits."""
+        import math
+        if not math.isfinite(pnl):
+            logger.error(f"Invalid P&L value: {pnl}")
+            return
         self.daily_pnl += pnl
         self.equity += pnl
         logger.info(f"Trade P&L: {pnl:.2f}, Daily P&L: {self.daily_pnl:.2f}, New Equity: {self.equity:.2f}")
@@ -90,7 +94,8 @@ class RiskManager:
             logger.info(f"High volatility detected ({volatility_percent:.2f}%). Reducing risk per trade to ${risk_per_trade_value:.2f}.")
 
         risk_per_share = abs(entry_price - stop_loss_price)
-        if risk_per_share <= 1e-9:
+        MIN_RISK_PER_SHARE_THRESHOLD = 1e-9
+        if risk_per_share <= MIN_RISK_PER_SHARE_THRESHOLD:
             logger.warning("Risk per share is zero. Cannot calculate position size.")
             return 0
 
@@ -102,5 +107,11 @@ class RiskManager:
         """Checks if the system is in a state that allows placing new trades."""
         if self.is_trading_stopped:
             logger.warning("Trade blocked: Trading is currently stopped by Risk Manager.")
+            return False
+        if abs(self.daily_pnl) >= self.max_daily_loss_value:
+            logger.warning("Trade blocked: Daily loss limit reached.")
+            return False
+        if self.consecutive_losses >= self.risk_params.consecutive_losses_stop:
+            logger.warning("Trade blocked: Consecutive losses limit reached.")
             return False
         return True

@@ -13,8 +13,6 @@ strategy:
     min_premium: 5.0
     max_premium: 200.0
   expiry_preference:
-    - weekly  # Prefer weekly expiries
-    - monthly
     max_days_to_expiry: 7
   # Enhanced scalping indicators
   ema_short: 9
@@ -43,6 +41,9 @@ risk:
   # Options-specific risk parameters
   max_premium_risk_percent: 2.0
   theta_decay_exit_minutes: 15
+  theta_decay_min_profit: 10
+  quick_profit_threshold: 25
+  quick_profit_min_time: 2
   iv_spike_threshold: 20.0
   trailing_stop:
     activate_at_profit_percent: 25

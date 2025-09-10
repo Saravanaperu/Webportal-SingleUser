@@ -19,17 +19,27 @@ class OptionsManager:
         self.atm_strikes = {}
         self.last_chain_update = {}
         
+    # Class constants
+    SPOT_SYMBOLS = {
+        'BANKNIFTY': 'BANKNIFTY-INDEX',
+        'NIFTY': 'NIFTY 50',
+        'FINNIFTY': 'FINNIFTY'
+    }
+    
+    SCORING_WEIGHTS = {
+        'DELTA_MULTIPLIER': 100,
+        'GAMMA_MULTIPLIER': 10000,
+        'THETA_BASE': 10,
+        'PREMIUM_TARGET': 50,
+        'PREMIUM_DIVISOR': 10,
+        'MONEYNESS_DIVISOR': 100
+    }
+    
     async def get_spot_price(self, index: str) -> Optional[float]:
         """Get current spot price of the underlying index."""
         try:
-            # Map index names to spot symbols
-            spot_symbols = {
-                'BANKNIFTY': 'BANKNIFTY-INDEX',
-                'NIFTY': 'NIFTY 50',
-                'FINNIFTY': 'FINNIFTY'
-            }
             
-            spot_symbol = spot_symbols.get(index)
+            spot_symbol = self.SPOT_SYMBOLS.get(index)
             if not spot_symbol:
                 return None
                 
@@ -72,7 +82,8 @@ class OptionsManager:
                 price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
                 
             return max(0, price)
-        except:
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
+            logger.error(f"Error calculating Black-Scholes price: {e}")
             return 0
     
     def calculate_greeks(self, S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> Dict:
@@ -110,7 +121,8 @@ class OptionsManager:
                 'theta': round(theta, 4),
                 'vega': round(vega, 4)
             }
-        except:
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
+            logger.error(f"Error calculating Greeks: {e}")
             return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
     
     async def get_best_strikes_for_scalping(self, index: str, direction: str) -> List[Dict]:
@@ -185,26 +197,27 @@ class OptionsManager:
         """Calculate scalping suitability score for an option."""
         try:
             # Higher delta = better directional movement
-            delta_score = abs(greeks['delta']) * 100
+            delta_score = abs(greeks['delta']) * self.SCORING_WEIGHTS['DELTA_MULTIPLIER']
             
             # Higher gamma = better acceleration
-            gamma_score = greeks['gamma'] * 10000
+            gamma_score = greeks['gamma'] * self.SCORING_WEIGHTS['GAMMA_MULTIPLIER']
             
             # Lower theta decay = better for short holds
-            theta_score = max(0, 10 + greeks['theta'])  # Theta is negative
+            theta_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] + greeks['theta'])  # Theta is negative
             
             # Moderate premium preferred
-            premium_score = max(0, 10 - abs(ltp - 50) / 10)
+            premium_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] - abs(ltp - self.SCORING_WEIGHTS['PREMIUM_TARGET']) / self.SCORING_WEIGHTS['PREMIUM_DIVISOR'])
             
             # Slight preference for ATM/ITM
-            moneyness_score = max(0, 10 - abs(strike - atm_strike) / 100)
+            moneyness_score = max(0, self.SCORING_WEIGHTS['THETA_BASE'] - abs(strike - atm_strike) / self.SCORING_WEIGHTS['MONEYNESS_DIVISOR'])
             
             total_score = (delta_score * 0.3 + gamma_score * 0.25 + 
                           theta_score * 0.2 + premium_score * 0.15 + 
                           moneyness_score * 0.1)
             
             return round(total_score, 2)
-        except:
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
+            logger.error(f"Error calculating scalping score: {e}")
             return 0
     
     def get_nearest_expiry(self) -> Optional[str]:
@@ -224,7 +237,8 @@ class OptionsManager:
                 return next_expiry.strftime('%d%b%Y').upper()
             
             return None
-        except:
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error getting nearest expiry: {e}")
             return None
     
     def get_time_to_expiry(self, expiry_str: str) -> float:
@@ -237,7 +251,8 @@ class OptionsManager:
             # Add intraday time (assume 3:30 PM expiry)
             hours_to_expiry = days_to_expiry * 24 + (15.5 - datetime.now().hour)
             return max(0.001, hours_to_expiry / (365 * 24))  # Convert to years
-        except:
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error calculating time to expiry: {e}")
             return 0.001
     
     async def get_option_data(self, symbol: str) -> Optional[Dict]:

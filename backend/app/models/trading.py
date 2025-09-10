@@ -40,7 +40,10 @@ class Order(Base):
     tp = Column(Float, nullable=True)
     atr_at_entry = Column(Float, nullable=True)
     confidence = Column(Integer, nullable=True)
-    greeks = Column(String, nullable=True)  # JSON string of Greeks
+    delta = Column(Float, nullable=True)
+    gamma = Column(Float, nullable=True)
+    theta = Column(Float, nullable=True)
+    vega = Column(Float, nullable=True)
 
 class Trade(Base):
     __tablename__ = "trades"

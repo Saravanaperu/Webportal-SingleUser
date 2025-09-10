@@ -20,6 +20,12 @@ class OrderManager:
         self.open_positions = {}  # Maps symbol to position details
         self.daily_trades_count = 0
         self.daily_pnl = 0.0
+        # Cache lot sizes
+        self._lot_sizes = {
+            'BANKNIFTY': 15,
+            'NIFTY': 50,
+            'FINNIFTY': 40
+        }
 
     async def create_options_order(self, signal: dict, position_size: int):
         """Creates and places an options order optimized for scalping."""
@@ -33,7 +39,10 @@ class OrderManager:
             "sl": signal.get('sl'), "tp": signal.get('tp'), 
             "atr_at_entry": signal.get('atr_at_entry'),
             "confidence": signal.get('confidence'),
-            "greeks": str(signal.get('greeks', {}))  # Store Greeks as string
+            "delta": signal.get('greeks', {}).get('delta'),
+            "gamma": signal.get('greeks', {}).get('gamma'),
+            "theta": signal.get('greeks', {}).get('theta'),
+            "vega": signal.get('greeks', {}).get('vega')
         }
         query = Order.__table__.insert().values(order_to_create)
         order_id = await self.db.execute(query)
@@ -123,12 +132,8 @@ class OrderManager:
             risk_amount = account_balance * (settings.risk.risk_per_trade_percent / 100)
             
             # For options, risk is the premium paid
-            # Calculate lot size (assuming standard lot sizes)
-            lot_sizes = {
-                'BANKNIFTY': 15,
-                'NIFTY': 50,
-                'FINNIFTY': 40
-            }
+            # Use cached lot sizes
+            lot_sizes = self._lot_sizes
             
             # Determine index from symbol
             index = None
@@ -142,7 +147,15 @@ class OrderManager:
                 return 0
                 
             lot_size = lot_sizes[index]
+            
+            if entry_price <= 0:
+                logger.error(f"Invalid entry price: {entry_price}")
+                return 0
+                
             premium_per_lot = entry_price * lot_size
+            if premium_per_lot <= 0:
+                logger.error(f"Invalid premium per lot: {premium_per_lot}")
+                return 0
             
             # Calculate number of lots based on risk
             max_lots = int(risk_amount / premium_per_lot)
