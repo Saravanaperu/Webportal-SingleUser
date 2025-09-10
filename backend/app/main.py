@@ -88,7 +88,7 @@ async def startup_event():
         ws_client = connector.get_ws_client()
         if ws_client:
             from .core.config import settings
-            instrument_symbols = settings.strategy.instruments
+            instrument_symbols = settings.strategy.instrument_types
 
             # This mapping is an assumption based on the library's documentation format.
             # It might need adjustment based on the actual `exch_seg` values from the instrument list.
@@ -189,7 +189,7 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
                 ws_client = connector.get_ws_client()
                 if ws_client:
                     from .core.config import settings
-                    instrument_symbols = settings.strategy.instruments
+                    instrument_symbols = settings.strategy.instrument_types
                     exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
 
                     tokens_to_subscribe = []
