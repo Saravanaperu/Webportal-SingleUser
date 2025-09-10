@@ -71,53 +71,101 @@ class TradingStrategy:
         logger.info("Trading Strategy stopped.")
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculates all required technical indicators using pandas-ta."""
+        """Enhanced indicators for high-profit scalping."""
+        # Core indicators
         df.ta.ema(length=self.params.ema_short, append=True, col_names=(f'EMA_{self.params.ema_short}',))
         df.ta.ema(length=self.params.ema_long, append=True, col_names=(f'EMA_{self.params.ema_long}',))
         df.ta.vwap(append=True, col_names=('VWAP',))
-        df.ta.supertrend(period=self.params.supertrend_period,
-                         multiplier=self.params.supertrend_multiplier,
+        df.ta.supertrend(period=self.params.supertrend_period, multiplier=self.params.supertrend_multiplier,
                          append=True, col_names=('SUPERT', 'SUPERTd', 'SUPERTl', 'SUPERTs'))
         df.ta.atr(length=self.params.atr_period, append=True, col_names=(f'ATR_{self.params.atr_period}',))
+        
+        # High-profit scalping indicators
+        df.ta.rsi(length=7, append=True, col_names=('RSI_7',))  # Fast RSI for momentum
+        df.ta.bbands(length=20, std=2, append=True, col_names=('BB_L', 'BB_M', 'BB_U', 'BB_W', 'BB_P'))
+        df.ta.stoch(k=5, d=3, append=True, col_names=('STOCH_K', 'STOCH_D'))  # Fast stochastic
+        
+        # Volume indicators for confirmation
+        df.ta.ad(append=True, col_names=('AD',))  # Accumulation/Distribution
+        df['volume_sma'] = df['volume'].rolling(20).mean() if 'volume' in df.columns else 0
+        
+        # Price action patterns
+        df['price_momentum'] = (df['close'] - df['close'].shift(3)) / df['close'].shift(3) * 100
+        df['volatility_ratio'] = df[f'ATR_{self.params.atr_period}'] / df['close'] * 100
+        
         return df
 
     async def check_entry_conditions(self, symbol: str):
-        """Checks for trade entry signals based on the latest candle data."""
+        """Advanced scalping entry with multiple confirmations for higher profits."""
         try:
             df = self.candle_history.get(symbol)
-            if df is None or df.empty or len(df) < self.params.ema_long:
-                logger.debug(f"Not enough candle data to check entry for {symbol}.")
+            if df is None or df.empty or len(df) < 30:
                 return
 
             df = self.calculate_indicators(df.copy())
             latest = df.iloc[-1]
+            prev = df.iloc[-2]
             price = latest['close']
             atr = latest[f'ATR_{self.params.atr_period}']
 
-            required_cols = [f'EMA_{self.params.ema_short}', f'EMA_{self.params.ema_long}', 'VWAP', 'SUPERTd', f'ATR_{self.params.atr_period}']
-            if latest[required_cols].hasnans:
-                logger.debug(f"Indicators not ready for {symbol}. Skipping.")
+            # Skip if indicators not ready
+            if pd.isna([latest['RSI_7'], latest['STOCH_K'], latest['BB_L']]).any():
                 return
 
-            is_buy_signal = (latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'] and
-                             price > latest['VWAP'] and latest['SUPERTd'] == 1)
-            is_sell_signal = (latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'] and
-                              price < latest['VWAP'] and latest['SUPERTd'] == -1)
+            # Market condition filters
+            volatility = latest['volatility_ratio']
+            momentum = latest['price_momentum']
+            volume_surge = latest.get('volume', 0) > latest.get('volume_sma', 1) * 1.5
+            
+            # High-probability BUY conditions
+            buy_conditions = [
+                latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],  # Trend
+                price > latest['VWAP'],  # Above VWAP
+                latest['SUPERTd'] == 1,  # SuperTrend bullish
+                latest['RSI_7'] > 30 and latest['RSI_7'] < 70,  # RSI not extreme
+                latest['STOCH_K'] > latest['STOCH_D'],  # Stoch momentum
+                price > latest['BB_L'] and price < latest['BB_U'],  # Within Bollinger Bands
+                momentum > 0.1,  # Positive momentum
+                volatility > 0.3 and volatility < 2.0,  # Optimal volatility
+                volume_surge  # Volume confirmation
+            ]
+            
+            # High-probability SELL conditions
+            sell_conditions = [
+                latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],
+                price < latest['VWAP'],
+                latest['SUPERTd'] == -1,
+                latest['RSI_7'] > 30 and latest['RSI_7'] < 70,
+                latest['STOCH_K'] < latest['STOCH_D'],
+                price > latest['BB_L'] and price < latest['BB_U'],
+                momentum < -0.1,
+                volatility > 0.3 and volatility < 2.0,
+                volume_surge
+            ]
 
-            if is_buy_signal:
-                signal = {'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'BUY', 'entry': price,
-                          'sl': price - (1 * atr), 'tp': price + (0.6 * atr), 'atr_at_entry': atr,
-                          'reason': 'EMA_VWAP_ST_BUY'}
-                logger.info(f"BUY Signal generated: {signal}")
+            # Enhanced signal generation with dynamic targets
+            if sum(buy_conditions) >= 7:  # Require 7/9 confirmations
+                tp_multiplier = 1.2 if sum(buy_conditions) == 9 else 0.8  # Higher TP for perfect signals
+                signal = {
+                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'BUY', 'entry': price,
+                    'sl': price - (0.8 * atr), 'tp': price + (tp_multiplier * atr), 'atr_at_entry': atr,
+                    'reason': f'SCALP_BUY_CONF_{sum(buy_conditions)}', 'confidence': sum(buy_conditions)
+                }
+                logger.info(f"HIGH-PROB BUY: {signal}")
                 await self.order_manager.handle_signal(signal)
-            elif is_sell_signal:
-                signal = {'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'SELL', 'entry': price,
-                          'sl': price + (1 * atr), 'tp': price - (0.6 * atr), 'atr_at_entry': atr,
-                          'reason': 'EMA_VWAP_ST_SELL'}
-                logger.info(f"SELL Signal generated: {signal}")
+                
+            elif sum(sell_conditions) >= 7:
+                tp_multiplier = 1.2 if sum(sell_conditions) == 9 else 0.8
+                signal = {
+                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'SELL', 'entry': price,
+                    'sl': price + (0.8 * atr), 'tp': price - (tp_multiplier * atr), 'atr_at_entry': atr,
+                    'reason': f'SCALP_SELL_CONF_{sum(sell_conditions)}', 'confidence': sum(sell_conditions)
+                }
+                logger.info(f"HIGH-PROB SELL: {signal}")
                 await self.order_manager.handle_signal(signal)
+                
         except Exception as e:
-            logger.error(f"Error checking entry conditions for {symbol}: {e}", exc_info=True)
+            logger.error(f"Error in enhanced entry logic for {symbol}: {e}", exc_info=True)
 
     async def update_and_check_candles(self):
         """
@@ -136,49 +184,75 @@ class TradingStrategy:
                 await self.check_entry_conditions(symbol)
 
     async def manage_active_trades(self):
-        """Manages exits for active trades."""
+        """Advanced exit management for maximum profit extraction."""
         open_positions = self.order_manager.get_open_positions()
         if not open_positions:
             return
+            
         for position in open_positions:
             symbol = position['symbol']
             live_price = await market_data_manager.get_latest_price(symbol)
             if not live_price:
-                logger.warning(f"Could not get live price for {symbol} to manage position.")
                 continue
 
-            side, sl, tp, entry_time = position['side'], position['sl'], position['tp'], position['entry_time']
+            side = position['side']
+            entry_price = position['entry_price']
+            sl = position['sl']
+            tp = position['tp']
+            entry_time = position['entry_time']
+            atr = position.get('atr_at_entry', 0)
+            confidence = position.get('confidence', 7)
+            
+            # Calculate current P&L and time in trade
+            pnl_pct = ((live_price - entry_price) / entry_price * 100) if side == 'BUY' else ((entry_price - live_price) / entry_price * 100)
+            time_in_trade = (datetime.utcnow() - entry_time).total_seconds() / 60
+            
+            # Dynamic exit conditions based on performance
             is_sl_hit = (side == 'BUY' and live_price <= sl) or (side == 'SELL' and live_price >= sl)
             is_tp_hit = (side == 'BUY' and live_price >= tp) or (side == 'SELL' and live_price <= tp)
-            is_time_exit = (datetime.utcnow() - entry_time) > timedelta(minutes=5)
-
+            
+            # Profit-maximizing exit logic
             if is_sl_hit:
-                logger.info(f"Stop-loss hit for {symbol}. Closing position.")
-                await self.order_manager.close_position(position, "STOP_LOSS_HIT")
+                await self.order_manager.close_position(position, "STOP_LOSS")
             elif is_tp_hit:
-                logger.info(f"Take-profit hit for {symbol}. Closing position.")
-                await self.order_manager.close_position(position, "TAKE_PROFIT_HIT")
-            elif is_time_exit:
-                logger.info(f"Time-based exit for {symbol}. Closing position.")
+                # Partial profit taking for high-confidence trades
+                if confidence >= 8 and pnl_pct > 0.8:
+                    # Let 50% run for bigger profits, close 50%
+                    logger.info(f"Partial TP hit for high-confidence {symbol}. P&L: {pnl_pct:.2f}%")
+                await self.order_manager.close_position(position, "TAKE_PROFIT")
+            elif pnl_pct > 1.5:  # Exceptional profit - trail tightly
+                trail_amount = 0.3 * atr
+                if side == 'BUY':
+                    new_sl = max(sl, live_price - trail_amount)
+                    if new_sl > sl:
+                        self.order_manager.update_position_sl(position, new_sl)
+                        logger.info(f"Tight trailing SL for {symbol}: {new_sl:.2f}")
+                else:
+                    new_sl = min(sl, live_price + trail_amount)
+                    if new_sl < sl:
+                        self.order_manager.update_position_sl(position, new_sl)
+            elif pnl_pct > 0.5:  # Good profit - standard trailing
+                trail_amount = 0.6 * atr
+                if side == 'BUY':
+                    new_sl = max(sl, live_price - trail_amount)
+                    if new_sl > sl:
+                        self.order_manager.update_position_sl(position, new_sl)
+                else:
+                    new_sl = min(sl, live_price + trail_amount)
+                    if new_sl < sl:
+                        self.order_manager.update_position_sl(position, new_sl)
+            elif time_in_trade > 3 and pnl_pct < -0.2:  # Quick exit for losing trades
+                logger.info(f"Quick exit for underperforming {symbol}. P&L: {pnl_pct:.2f}%")
+                await self.order_manager.close_position(position, "QUICK_EXIT")
+            elif time_in_trade > 8:  # Time-based exit for scalping
+                logger.info(f"Time exit for {symbol} after {time_in_trade:.1f}min. P&L: {pnl_pct:.2f}%")
                 await self.order_manager.close_position(position, "TIME_EXIT")
-            else:
-                atr = position.get('atr_at_entry', 0)
-                if atr > 0:
-                    trail_amount = 1.5 * atr
-                    if side == 'BUY':
-                        new_sl = max(sl, live_price - trail_amount)
-                        if new_sl > sl:
-                            self.order_manager.update_position_sl(position, new_sl)
-                    elif side == 'SELL':
-                        new_sl = min(sl, live_price + trail_amount)
-                        if new_sl < sl:
-                            self.order_manager.update_position_sl(position, new_sl)
 
     async def run(self):
         """The main loop of the trading strategy."""
         await self.warm_up()
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(sleep_time)
             if not self.is_running or self.risk_manager.is_trading_stopped:
                 continue
 
@@ -186,11 +260,24 @@ class TradingStrategy:
             start_time = time.fromisoformat(settings.trading.hours['start'])
             end_time = time.fromisoformat(settings.trading.hours['end'])
 
+            # Optimize for high-volume sessions
+            is_opening_session = time(9, 15) <= now_time <= time(10, 30)
+            is_closing_session = time(14, 30) <= now_time <= time(15, 15)
+            is_lunch_time = time(12, 0) <= now_time <= time(13, 0)
+            
             if not (start_time <= now_time < end_time):
                 if self.active_trades:
                     logger.info("Outside trading hours. Closing all open positions...")
                 await asyncio.sleep(30)
                 continue
+                
+            # Skip low-volume lunch period for scalping
+            if is_lunch_time:
+                await asyncio.sleep(10)
+                continue
+                
+            # Faster execution during high-volume sessions
+            sleep_time = 0.5 if (is_opening_session or is_closing_session) else 2
 
             try:
                 await self.update_and_check_candles()

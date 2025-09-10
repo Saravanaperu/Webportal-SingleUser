@@ -192,17 +192,18 @@ async def websocket_data_endpoint(websocket: WebSocket):
     Handles client connection and stays open to receive broadcasted data.
     """
     await ws_manager.connect(websocket)
-    logger.info(f"Client {websocket.client.host}:{websocket.client.port} connected to data WebSocket.")
+    logger.info(f"Client connected to WebSocket")
     try:
-        # Keep the connection alive, listening for messages from the client (if any)
-        # and allowing the manager to broadcast messages to the client.
         while True:
-            # We can optionally receive messages from the client, e.g., for commands
-            # For now, we just keep the connection open.
-            await websocket.receive_text()
+            try:
+                # Add timeout to prevent hanging
+                await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
-        logger.info(f"Client {websocket.client.host}:{websocket.client.port} disconnected.")
+        await ws_manager.disconnect(websocket)
+        logger.info("Client disconnected from WebSocket")
     except Exception as e:
-        ws_manager.disconnect(websocket)
-        logger.error(f"Error in data websocket for client {websocket.client.host}:{websocket.client.port}: {e}", exc_info=True)
+        await ws_manager.disconnect(websocket)
+        logger.error(f"WebSocket error: {e}", exc_info=True)

@@ -10,8 +10,17 @@ class StrategyConfig(BaseModel):
     ema_short: int
     ema_long: int
     supertrend_period: int
-    supertrend_multiplier: float # Can be float
+    supertrend_multiplier: float
     atr_period: int
+    # New scalping parameters
+    min_confirmations: int = 7
+    rsi_period: int = 7
+    bb_period: int = 20
+    stoch_k: int = 5
+    stoch_d: int = 3
+    volume_surge_threshold: float = 1.5
+    min_volatility: float = 0.3
+    max_volatility: float = 2.0
 
 class VolatilityAdjustmentConfig(BaseModel):
     high_vol_threshold_percent: float

@@ -156,8 +156,14 @@
             async function fetchPositions() {
                 try {
                     const response = await fetch('/api/positions');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
                     const positions = await response.json();
-                    positionsTableBody.innerHTML = ''; // Clear old data
+                    if (positions.error) {
+                        throw new Error(positions.error);
+                    }
+                    positionsTableBody.innerHTML = '';
                     if (positions && positions.length > 0) {
                         positions.forEach(pos => {
                             const row = document.createElement('tr');
@@ -184,6 +190,9 @@
             async function fetchStrategyParams() {
                 try {
                     const response = await fetch('/api/strategy/parameters');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
                     const params = await response.json();
                     if (params && !params.error) {
                         document.getElementById('param-ema-short').value = params.ema_short;
@@ -202,6 +211,11 @@
                     const [accRes, statsRes, tradesRes] = await Promise.all([
                         fetch('/api/account'), fetch('/api/stats'), fetch('/api/trades')
                     ]);
+                    
+                    if (!accRes.ok || !statsRes.ok || !tradesRes.ok) {
+                        throw new Error('Failed to fetch initial data');
+                    }
+                    
                     const accData = await accRes.json();
                     const statsData = await statsRes.json();
                     const tradesData = await tradesRes.json();
@@ -212,6 +226,10 @@
                     }
                     if (statsData && !statsData.error) {
                         updateStats(statsData);
+                        // Sync strategy button state
+                        isStrategyRunning = !statsData.is_trading_stopped;
+                        strategyToggleBtn.textContent = isStrategyRunning ? 'Stop Strategy' : 'Start Strategy';
+                        strategyToggleBtn.style.backgroundColor = isStrategyRunning ? '#f39c12' : '#2ecc71';
                     }
                     tradesTableBody.innerHTML = '';
                     if (tradesData && tradesData.length > 0) {
@@ -227,41 +245,42 @@
             }
 
             function connectWebsockets() {
-                const ws = new WebSocket(`ws://${window.location.host}/ws/data`);
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/data`);
 
                 ws.onopen = () => {
                     console.log("WebSocket connection established.");
-                    dataFeedStatusEl.textContent = 'CONNECTING...';
+                    dataFeedStatusEl.textContent = 'CONNECTED';
+                    dataFeedStatusEl.className = 'positive';
                 };
 
                 ws.onmessage = (event) => {
-                    const message = JSON.parse(event.data);
-                    switch (message.type) {
-                        case 'market_data':
-                            // Assuming message.data contains tick info like {t, o, h, l, c}
-                            // The broker might send data in a different format, this needs to be adapted.
-                            // For AngelOne, 't' is epoch timestamp, 'o' is open, etc.
-                            const tick = message.data;
-                            if (tick && tick.t) {
-                                // Convert timestamp to seconds for the chart
-                                const candleTime = Math.floor(tick.t);
-                                const candle = { time: candleTime, open: tick.o, high: tick.h, low: tick.l, close: tick.c };
-                                candleSeries.update(candle);
-                                dataFeedStatusEl.textContent = 'CONNECTED';
-                                dataFeedStatusEl.className = 'positive';
-                            }
-                            break;
-                        case 'order_update':
-                            // An order was filled or updated, refresh positions and historical trades
-                            fetchPositions();
-                            fetchTrades(); // We need a function to just fetch trades
-                            break;
-                        case 'stats_update':
-                            // The backend pushed new P&L or other stats
-                            updateStats(message.data);
-                            break;
-                        default:
-                            console.warn("Received unknown WebSocket message type:", message.type);
+                    try {
+                        const message = JSON.parse(event.data);
+                        switch (message.type) {
+                            case 'ping':
+                                // Respond to ping to keep connection alive
+                                ws.send(JSON.stringify({type: 'pong'}));
+                                break;
+                            case 'market_data':
+                                const tick = message.data;
+                                if (tick && tick.ltp) {
+                                    dataFeedStatusEl.textContent = 'CONNECTED';
+                                    dataFeedStatusEl.className = 'positive';
+                                }
+                                break;
+                            case 'order_update':
+                                fetchPositions();
+                                fetchTrades();
+                                break;
+                            case 'stats_update':
+                                updateStats(message.data);
+                                break;
+                            default:
+                                console.warn("Unknown WebSocket message:", message.type);
+                        }
+                    } catch (err) {
+                        console.error('WebSocket message parse error:', err);
                     }
                 };
 
@@ -322,10 +341,16 @@
             }
 
             async function fetchTrades() {
-                 try {
+                try {
                     const response = await fetch('/api/trades');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
                     const trades = await response.json();
-                    tradesTableBody.innerHTML = ''; // Clear old data
+                    if (trades.error) {
+                        throw new Error(trades.error);
+                    }
+                    tradesTableBody.innerHTML = '';
                     if (trades && trades.length > 0) {
                         trades.forEach(trade => addTradeRow(trade));
                     } else {
@@ -400,15 +425,35 @@
 
             strategyToggleBtn.addEventListener('click', async () => {
                 const action = isStrategyRunning ? 'stop' : 'start';
-                const response = await fetch('/api/strategy/control', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action })
-                });
-                const data = await response.json();
-                if (data.status.includes('started')) isStrategyRunning = true;
-                if (data.status.includes('stopped')) isStrategyRunning = false;
-                strategyToggleBtn.textContent = isStrategyRunning ? 'Stop Strategy' : 'Start Strategy';
-                strategyToggleBtn.style.backgroundColor = isStrategyRunning ? '#f39c12' : '#2ecc71';
+                strategyToggleBtn.disabled = true;
+                strategyToggleBtn.textContent = 'Processing...';
+                
+                try {
+                    const response = await fetch('/api/strategy/control', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    if (data.status.includes('started')) isStrategyRunning = true;
+                    if (data.status.includes('stopped')) isStrategyRunning = false;
+                    
+                } catch (err) {
+                    console.error('Strategy control error:', err);
+                    alert(`Error: ${err.message}`);
+                } finally {
+                    strategyToggleBtn.disabled = false;
+                    strategyToggleBtn.textContent = isStrategyRunning ? 'Stop Strategy' : 'Start Strategy';
+                    strategyToggleBtn.style.backgroundColor = isStrategyRunning ? '#f39c12' : '#2ecc71';
+                }
             });
 
             killSwitchBtn.addEventListener('click', async () => {
