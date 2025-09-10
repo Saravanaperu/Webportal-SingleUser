@@ -106,8 +106,6 @@ async def startup_event():
         # Start the WebSocket connection in the background
         ws_client = connector.get_ws_client()
         if ws_client:
-            tokens_to_subscribe = _get_websocket_tokens(app.state.instrument_manager)
-
             if tokens_to_subscribe:
                 ws_client.set_instrument_tokens(tokens_to_subscribe)
                 app.state.ws_client = ws_client # Store client for shutdown
@@ -190,8 +188,6 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
                 # 2. Start new tasks with the new ws_client instance
                 ws_client = connector.get_ws_client()
                 if ws_client:
-                    tokens_to_subscribe = _get_websocket_tokens(app_state.instrument_manager)
-
                     ws_client.set_instrument_tokens(tokens_to_subscribe)
                     app_state.ws_client = ws_client
                     app_state.websocket_task = asyncio.create_task(ws_client.connect())

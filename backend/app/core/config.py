@@ -73,6 +73,7 @@ class TradingConfig(BaseModel):
     avoid_sessions: list[TradingSessionConfig]
     paper_trading: bool
     square_off_time: str
+    lot_sizes: dict[str, int]
 
 class CooldownConfig(BaseModel):
     after_consecutive_losses_minutes: int
