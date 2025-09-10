@@ -91,3 +91,6 @@ cooldown:
   after_consecutive_losses_minutes: 20
   after_big_loss_minutes: 45
   big_loss_threshold_percent: 1.5
+network:
+  retry_attempts: 3
+  retry_delay_seconds: 2
