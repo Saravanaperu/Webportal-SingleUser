@@ -87,24 +87,25 @@ async def startup_event():
         # Start the WebSocket connection in the background
         ws_client = connector.get_ws_client()
         if ws_client:
-            from .core.config import settings
-            instrument_symbols = settings.strategy.instruments
-
             # This mapping is an assumption based on the library's documentation format.
             # It might need adjustment based on the actual `exch_seg` values from the instrument list.
             exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
 
             tokens_to_subscribe = []
-            for symbol in instrument_symbols:
-                # Assuming 'NSE' for all instruments as per strategy config.
-                exchange = "NSE"
-                token = instrument_manager.get_token(symbol, exchange)
+            # Subscribe to all instruments loaded by the InstrumentManager
+            for instrument in app.state.instrument_manager.instruments:
+                token = instrument.get('token')
+                exchange = instrument.get('exch_seg')
+
+                if not token or not exchange:
+                    continue
+
                 ws_exchange_format = exchange_map.get(exchange.upper())
 
-                if token and ws_exchange_format:
+                if ws_exchange_format:
                     tokens_to_subscribe.append(f"{ws_exchange_format}|{token}")
                 else:
-                    logger.warning(f"Could not find token or exchange format for {symbol}. It will not be subscribed via WebSocket.")
+                    logger.warning(f"No WebSocket exchange format found for exchange '{exchange}' for symbol {instrument.get('symbol')}.")
 
             if tokens_to_subscribe:
                 ws_client.set_instrument_tokens(tokens_to_subscribe)
@@ -188,20 +189,22 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
                 # 2. Start new tasks with the new ws_client instance
                 ws_client = connector.get_ws_client()
                 if ws_client:
-                    from .core.config import settings
-                    instrument_symbols = settings.strategy.instruments
                     exchange_map = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo"}
-
                     tokens_to_subscribe = []
-                    for symbol in instrument_symbols:
-                        exchange = "NSE"
-                        token = instrument_manager.get_token(symbol, exchange)
+                    # Subscribe to all instruments loaded by the InstrumentManager
+                    for instrument in app_state.instrument_manager.instruments:
+                        token = instrument.get('token')
+                        exchange = instrument.get('exch_seg')
+
+                        if not token or not exchange:
+                            continue
+
                         ws_exchange_format = exchange_map.get(exchange.upper())
 
-                        if token and ws_exchange_format:
+                        if ws_exchange_format:
                             tokens_to_subscribe.append(f"{ws_exchange_format}|{token}")
                         else:
-                            logger.warning(f"Could not find token or format for {symbol} during reconnect.")
+                            logger.warning(f"No WebSocket exchange format found for exchange '{exchange}' for symbol {instrument.get('symbol')} during reconnect.")
 
                     ws_client.set_instrument_tokens(tokens_to_subscribe)
                     app_state.ws_client = ws_client
