@@ -52,22 +52,24 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 CONFIG_FILE = BASE_DIR / "config.yaml"
 
 # --- Environment Loading ---
-# By default, load the .env file.
-# If a .env.test file exists, load that instead. This is useful for running tests
-# without needing a real .env file with production secrets.
-ENV_FILE = BASE_DIR / ".env"
-TEST_ENV_FILE = BASE_DIR / ".env.test"
+# This logic checks the ENV_STATE environment variable to decide which .env file to load.
+# `test.sh` will set ENV_STATE=test, ensuring tests load the test configuration.
+# `run.sh` will not set it, so it will load the production configuration.
+ENV_STATE = os.getenv("ENV_STATE", "prod")
 
-if TEST_ENV_FILE.is_file():
+if ENV_STATE == "test":
     print("Loading test environment from .env.test")
-    load_dotenv(dotenv_path=TEST_ENV_FILE)
-elif ENV_FILE.is_file():
-    print("Loading production environment from .env")
-    load_dotenv(dotenv_path=ENV_FILE)
+    env_path = BASE_DIR / ".env.test"
+    load_dotenv(dotenv_path=env_path)
 else:
-    print("Warning: No .env or .env.test file found. Loading from environment variables.")
-    # If no file is found, Pydantic will still try to load from actual env vars.
-    pass
+    print("Loading production environment from .env")
+    env_path = BASE_DIR / ".env"
+    if env_path.is_file():
+        load_dotenv(dotenv_path=env_path)
+    else:
+        print("Warning: .env file not found. Loading from environment variables.")
+        # If no file is found, Pydantic will still try to load from actual env vars.
+        pass
 
 
 def load_config(path: Path = CONFIG_FILE) -> dict:

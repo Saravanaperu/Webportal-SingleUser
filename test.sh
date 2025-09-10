@@ -5,6 +5,9 @@
 
 VENV_DIR="venv"
 
+# Set the environment state to 'test'
+export ENV_STATE=test
+
 # Check if the virtual environment exists
 if [ ! -d "$VENV_DIR" ]; then
     echo "ERROR: Virtual environment not found at './${VENV_DIR}'."
