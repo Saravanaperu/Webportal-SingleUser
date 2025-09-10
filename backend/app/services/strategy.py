@@ -252,8 +252,8 @@ class TradingStrategy:
         """The main loop of the trading strategy."""
         await self.warm_up()
         while True:
-            await asyncio.sleep(sleep_time)
             if not self.is_running or self.risk_manager.is_trading_stopped:
+                await asyncio.sleep(2)  # Sleep to prevent busy-waiting when stopped
                 continue
 
             now_time = datetime.now().time()
@@ -284,3 +284,5 @@ class TradingStrategy:
                 await self.manage_active_trades()
             except Exception as e:
                 logger.error(f"Error in strategy cycle: {e}", exc_info=True)
+
+            await asyncio.sleep(sleep_time)

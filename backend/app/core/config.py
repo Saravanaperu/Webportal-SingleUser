@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 
 class StrategyConfig(BaseModel):
-    instruments: list[str]
+    trade_indices: list[str]
+    instrument_types: list[str]
     timeframe: str
     ema_short: int
     ema_long: int
