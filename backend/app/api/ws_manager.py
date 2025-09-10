@@ -1,7 +1,8 @@
 import asyncio
+import json
 from typing import List
 from fastapi import WebSocket
-from ..core.logging import logger
+from ..core.logging import logger, ws_broadcast_logger
 
 class WebSocketManager:
     def __init__(self):
@@ -19,6 +20,9 @@ class WebSocketManager:
                 self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        # Log the message to the dedicated broadcast log
+        ws_broadcast_logger.info(json.dumps(message))
+
         if not self.active_connections:
             return
         
