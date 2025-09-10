@@ -37,12 +37,17 @@ async def get_positions(request: Request):
         return {"error": "Services not initialized."}
 
     open_positions = order_manager.get_open_positions()
+    if not open_positions:
+        return []
+    
+    # Fetch all prices concurrently
+    import asyncio
+    symbols = [pos['symbol'] for pos in open_positions]
+    prices = await asyncio.gather(*[market_data_manager.get_latest_price(symbol) for symbol in symbols])
+    
     positions_with_pnl = []
-
-    for pos in open_positions:
-        live_price = await market_data_manager.get_latest_price(pos['symbol'])
+    for pos, live_price in zip(open_positions, prices):
         pnl = 0.0
-
         if live_price:
             entry_price = pos['entry_price']
             qty = pos['qty']

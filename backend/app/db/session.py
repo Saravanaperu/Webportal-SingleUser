@@ -7,7 +7,9 @@ from .base import Base
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # This makes the database path relative to the project root, not the current working dir.
 BASE_DIR = Path(__file__).resolve().parents[3]
-DB_PATH = BASE_DIR / "data" / "trading_portal.db"
+data_dir = BASE_DIR / "data"
+data_dir.mkdir(exist_ok=True)  # Ensure data directory exists
+DB_PATH = data_dir / "trading_portal.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 
@@ -29,4 +31,11 @@ def create_tables():
     This is a synchronous operation and should be called once on application startup.
     In a production environment, this would be handled by a migration tool like Alembic.
     """
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        from ..core.logging import logger
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        from ..core.logging import logger
+        logger.error(f"Error creating database tables: {e}")
+        raise

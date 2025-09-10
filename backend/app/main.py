@@ -281,7 +281,9 @@ async def shutdown_event():
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard(request: Request):
     """Serves the main dashboard page."""
-    return templates.TemplateResponse("index.html", {"request": request, "title": "Dashboard"})
+    import html
+    safe_title = html.escape("Dashboard")
+    return templates.TemplateResponse("index.html", {"request": request, "title": safe_title})
 
 # Include the API router
 app.include_router(api_router, prefix="/api")

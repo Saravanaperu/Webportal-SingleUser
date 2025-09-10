@@ -73,8 +73,15 @@ else:
 
 
 def load_config(path: Path = CONFIG_FILE) -> dict:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        logger.error(f"Config file not found: {path}")
+        raise
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing config file: {e}")
+        raise
 
 # Load config from root directory
 config_data = load_config()
@@ -85,6 +92,12 @@ config_data = load_config()
 # Pydantic will automatically use environment variables to override values in BaseSettings.
 # The names are matched case-insensitively.
 # e.g., ANGEL_API_KEY in the .env file will map to the api_key field.
+# Validate required environment variables
+required_env_vars = ["API_KEY", "API_SECRET", "CLIENT_ID", "PASSWORD", "TOTP_SECRET"]
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    raise ValueError(f"Missing required environment variables: {missing_vars}")
+
 settings = Settings(
     api_key=os.getenv("API_KEY"),
     api_secret=os.getenv("API_SECRET"),
