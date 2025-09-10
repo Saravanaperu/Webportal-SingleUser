@@ -30,35 +30,48 @@ class OptionsManager:
     
     
     async def get_spot_price(self, index: str) -> Optional[float]:
-        """Get current spot price of the underlying index, with caching."""
+        """
+        Get current spot price of the underlying index, with caching and retry logic.
+        """
         now = datetime.utcnow()
 
         # Check cache first
         if index in self.spot_prices:
-            price, ts = self.spot_prices[index]
-            if now - ts < self.spot_price_cache_ttl:
+            price, ts = self.spot_prices.get(index, (None, None))
+            if price is not None and (now - ts < self.spot_price_cache_ttl):
                 return price
 
-        try:
-            spot_symbol = INDEX_SYMBOLS.get(index)
-            if not spot_symbol:
-                return None
-                
-            # Get LTP from broker API
-            response = await self.rest_client.get_ltp(spot_symbol, 'NSE')
-            if response and 'data' in response:
-                ltp = float(response['data']['ltp'])
-                # Update cache
-                self.spot_prices[index] = (ltp, now)
-                return ltp
-                
-        except Exception as e:
-            logger.error(f"Error getting spot price for {index}: {e}", exc_info=True)
+        # Retry logic for fetching from API
+        for attempt in range(settings.network.retry_attempts):
+            try:
+                spot_symbol = INDEX_SYMBOLS.get(index)
+                if not spot_symbol:
+                    logger.warning(f"No spot symbol found for index: {index}")
+                    return None
 
-        # Return stale price if API fails but a cached value exists
+                # Get LTP from broker API
+                response = await self.rest_client.get_ltp(spot_symbol, 'NSE')
+                
+                if response and response.get('data') and 'ltp' in response['data']:
+                    ltp = float(response['data']['ltp'])
+                    # Update cache
+                    self.spot_prices[index] = (ltp, now)
+                    return ltp
+                else:
+                    logger.warning(f"Unexpected API response for {index}: {response}")
+
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1} failed to get spot price for {index}: {e}", exc_info=True)
+                if attempt < settings.network.retry_attempts - 1:
+                    await asyncio.sleep(settings.network.retry_delay_seconds)
+
+        # If all retries fail, return stale price if available
         if index in self.spot_prices:
-            return self.spot_prices[index][0]
+            stale_price, stale_ts = self.spot_prices[index]
+            logger.warning(f"All attempts to fetch spot price for {index} failed. Returning stale price from {stale_ts}.")
+            return stale_price
 
+        logger.error(f"Could not fetch spot price for {index} after all retries.")
         return None
     
     def calculate_atm_strike(self, spot_price: float, index: str) -> int:
@@ -228,7 +241,7 @@ class OptionsManager:
             # 5. Moneyness Score (10% weight): Slightly prefers options closer to ATM.
             moneyness_distance = abs(strike - atm_strike)
             moneyness_score = max(0, weights.theta_base - (moneyness_distance / weights.moneyness_divisor))
-            
+
             # Combine scores with their respective weights
             total_score = (delta_score * 0.3 +
                            gamma_score * 0.25 +

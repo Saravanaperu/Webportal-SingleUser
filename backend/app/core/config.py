@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from pathlib import Path
+from .logging import logger
 
 class StrikeSelectionConfig(BaseModel):
     atm_range: int
@@ -78,6 +79,10 @@ class CooldownConfig(BaseModel):
     after_big_loss_minutes: int
     big_loss_threshold_percent: float
 
+class NetworkConfig(BaseModel):
+    retry_attempts: int
+    retry_delay_seconds: int
+
 class Settings(BaseModel):
     # AngelOne Credentials
     api_key: str
@@ -91,6 +96,7 @@ class Settings(BaseModel):
     risk: RiskConfig
     trading: TradingConfig
     cooldown: CooldownConfig
+    network: NetworkConfig
 
 # --- Path Setup ---
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -104,16 +110,16 @@ CONFIG_FILE = BASE_DIR / "config.yaml"
 ENV_STATE = os.getenv("ENV_STATE", "prod")
 
 if ENV_STATE == "test":
-    print("Loading test environment from .env.test")
+    logger.info("Loading test environment from .env.test")
     env_path = BASE_DIR / ".env.test"
     load_dotenv(dotenv_path=env_path)
 else:
-    print("Loading production environment from .env")
+    logger.info("Loading production environment from .env")
     env_path = BASE_DIR / ".env"
     if env_path.is_file():
         load_dotenv(dotenv_path=env_path)
     else:
-        print("Warning: .env file not found. Loading from environment variables.")
+        logger.warning(".env file not found. Loading from environment variables.")
         # If no file is found, Pydantic will still try to load from actual env vars.
         pass
 
@@ -123,10 +129,10 @@ def load_config(path: Path = CONFIG_FILE) -> dict:
         with open(path, "r") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        print(f"Config file not found: {path}")
+        logger.error(f"Config file not found: {path}")
         raise
     except yaml.YAMLError as e:
-        print(f"Error parsing config file: {e}")
+        logger.error(f"Error parsing config file: {e}")
         raise
 
 # Load config from root directory
