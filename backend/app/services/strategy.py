@@ -3,7 +3,7 @@ import pandas as pd
 import pandas_ta as ta
 from datetime import datetime, time, timedelta
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from ..core.config import settings, StrategyConfig
 from ..core.logging import logger
