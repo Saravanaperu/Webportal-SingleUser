@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import asyncio
 
-from app.core.logging import logger
-from app.db.session import database
-from app.models.trading import Candle
+from ..core.logging import logger
+from ..db.session import database
+from ..models.trading import Candle
 
 class MarketDataManager:
     _instance = None

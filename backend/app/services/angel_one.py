@@ -1,12 +1,9 @@
-import os
 import asyncio
-from dotenv import load_dotenv
-from app.core.logging import logger
-from app.angel_one_connector.auth import AngelAuth
-from app.angel_one_connector.rest_client import AngelRestClient
-from app.angel_one_connector.ws_client import AngelWsClient
-
-load_dotenv()
+from ..core.config import settings
+from ..core.logging import logger
+from ..angel_one_connector.auth import AngelAuth
+from ..angel_one_connector.rest_client import AngelRestClient
+from ..angel_one_connector.ws_client import AngelWsClient
 
 class AngelOneConnector:
     """
@@ -14,13 +11,13 @@ class AngelOneConnector:
     REST, and WebSocket clients.
     """
     def __init__(self):
-        self.api_key = os.getenv("ANGEL_API_KEY")
-        self.client_id = os.getenv("ANGEL_CLIENT_ID")
-        self.password = os.getenv("ANGEL_PASSWORD")
-        self.totp_secret = os.getenv("ANGEL_TOTP_SECRET")
+        self.api_key = settings.api_key
+        self.client_id = settings.client_id
+        self.password = settings.password
+        self.totp_secret = settings.totp_secret
 
         if not all([self.api_key, self.client_id, self.password, self.totp_secret]):
-            raise ValueError("Missing required AngelOne credentials in .env file.")
+            raise ValueError("Missing required AngelOne credentials in settings/.env file.")
 
         self.auth_client = AngelAuth(self.api_key, self.client_id, self.password, self.totp_secret)
         self.rest_client = None

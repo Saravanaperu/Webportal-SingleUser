@@ -1,5 +1,5 @@
 import httpx
-from app.core.logging import logger
+from ..core.logging import logger
 from SmartApi import SmartConnect
 
 class AngelRestClient:
@@ -46,11 +46,15 @@ class AngelRestClient:
         logger.info("Fetching profile from AngelOne...")
         try:
             profile_data = self.smart_api.getProfile(refresh_token)
-            if profile_data.get("status") and profile_data.get("data"):
+            if profile_data and profile_data.get("status") and profile_data.get("data"):
                 data = profile_data["data"]
+                # Safely get balance and margin, defaulting to 0.0 if None
+                balance = data.get("net")
+                margin = data.get("availablecash")
+
                 return {
-                    "balance": float(data.get("net")),
-                    "margin": float(data.get("availablecash")),
+                    "balance": float(balance) if balance is not None else 0.0,
+                    "margin": float(margin) if margin is not None else 0.0,
                     "name": data.get("name")
                 }
             else:

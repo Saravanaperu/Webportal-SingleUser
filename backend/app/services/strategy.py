@@ -4,14 +4,14 @@ import pandas_ta as ta
 from datetime import datetime, time, timedelta
 import numpy as np
 
-from app.core.config import settings, StrategyConfig
-from app.core.logging import logger
-from app.services.order_manager import OrderManager
-from app.services.risk_manager import RiskManager
-from app.services.market_data_manager import market_data_manager
-from app.services.instrument_manager import instrument_manager
-from app.db.session import database
-from app.models.trading import Candle
+from ..core.config import settings, StrategyConfig
+from ..core.logging import logger
+from .order_manager import OrderManager
+from .risk_manager import RiskManager
+from .market_data_manager import market_data_manager
+from .instrument_manager import instrument_manager
+from ..db.session import database
+from ..models.trading import Candle
 
 class TradingStrategy:
     """

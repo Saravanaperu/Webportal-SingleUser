@@ -71,7 +71,7 @@
         </section>
 
         <section id="chart-section">
-            <h2>Market Chart (Simulated)</h2>
+            <h2>Market Chart</h2>
             <div id="trading-chart"></div>
         </section>
 
@@ -168,7 +168,7 @@
                                 <td>${pos.qty}</td>
                                 <td>${Number(pos.entry_price).toFixed(2)}</td>
                                 <td>${Number(pos.live_price).toFixed(2)}</td>
-                                <td class="${pnlClass}">$${pos.pnl.toFixed(2)}</td>
+                                <td class="${pnlClass}">${pos.pnl.toFixed(2)}</td>
                             `;
                             positionsTableBody.appendChild(row);
                         });
@@ -207,8 +207,8 @@
                     const tradesData = await tradesRes.json();
 
                     if (accData && !accData.error) {
-                        balanceEl.textContent = `$${Number(accData.balance).toFixed(2)}`;
-                        marginEl.textContent = `$${Number(accData.margin).toFixed(2)}`;
+                        balanceEl.textContent = `${Number(accData.balance).toFixed(2)}`;
+                        marginEl.textContent = `${Number(accData.margin).toFixed(2)}`;
                     }
                     if (statsData && !statsData.error) {
                         updateStats(statsData);
@@ -227,28 +227,71 @@
             }
 
             function connectWebsockets() {
-                const marketWs = new WebSocket(`ws://${window.location.host}/ws/market`);
-                marketWs.onmessage = (event) => {
-                    const tick = JSON.parse(event.data);
-                    const candleTime = Math.floor(new Date(tick.ts).getTime() / 60000) * 60; // Group by minute
-                    const candle = { time: candleTime, open: tick.price, high: tick.price, low: tick.price, close: tick.price };
-                    candleSeries.update(candle);
+                const ws = new WebSocket(`ws://${window.location.host}/ws/data`);
+
+                ws.onopen = () => {
+                    console.log("WebSocket connection established.");
+                    dataFeedStatusEl.textContent = 'CONNECTING...';
                 };
-                marketWs.onerror = (err) => console.error('Market WS Error:', err);
+
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    switch (message.type) {
+                        case 'market_data':
+                            // Assuming message.data contains tick info like {t, o, h, l, c}
+                            // The broker might send data in a different format, this needs to be adapted.
+                            // For AngelOne, 't' is epoch timestamp, 'o' is open, etc.
+                            const tick = message.data;
+                            if (tick && tick.t) {
+                                // Convert timestamp to seconds for the chart
+                                const candleTime = Math.floor(tick.t);
+                                const candle = { time: candleTime, open: tick.o, high: tick.h, low: tick.l, close: tick.c };
+                                candleSeries.update(candle);
+                                dataFeedStatusEl.textContent = 'CONNECTED';
+                                dataFeedStatusEl.className = 'positive';
+                            }
+                            break;
+                        case 'order_update':
+                            // An order was filled or updated, refresh positions and historical trades
+                            fetchPositions();
+                            fetchTrades(); // We need a function to just fetch trades
+                            break;
+                        case 'stats_update':
+                            // The backend pushed new P&L or other stats
+                            updateStats(message.data);
+                            break;
+                        default:
+                            console.warn("Received unknown WebSocket message type:", message.type);
+                    }
+                };
+
+                ws.onerror = (err) => {
+                    console.error('WebSocket Error:', err);
+                    dataFeedStatusEl.textContent = 'ERROR';
+                    dataFeedStatusEl.className = 'negative';
+                };
+
+                ws.onclose = () => {
+                    console.log("WebSocket connection closed. Attempting to reconnect...");
+                    dataFeedStatusEl.textContent = 'DISCONNECTED';
+                    dataFeedStatusEl.className = 'negative';
+                    // Simple reconnect logic
+                    setTimeout(connectWebsockets, 5000);
+                };
             }
 
             // --- UI Updates ---
             function updateStats(stats) {
                 // Update text fields
                 const pnl = Number(stats.pnl).toFixed(2);
-                realizedPnlEl.textContent = `$${pnl}`;
+                realizedPnlEl.textContent = `${pnl}`;
                 realizedPnlEl.className = stats.pnl >= 0 ? 'positive' : 'negative';
 
                 totalTradesEl.textContent = stats.total_trades;
                 winRateEl.textContent = `${Number(stats.win_rate).toFixed(2)}%`;
-                avgWinEl.textContent = `$${Number(stats.avg_win_pnl).toFixed(2)}`;
+                avgWinEl.textContent = `${Number(stats.avg_win_pnl).toFixed(2)}`;
                 avgWinEl.className = 'positive';
-                avgLossEl.textContent = `$${Number(stats.avg_loss_pnl).toFixed(2)}`;
+                avgLossEl.textContent = `${Number(stats.avg_loss_pnl).toFixed(2)}`;
                 avgLossEl.className = 'negative';
 
                 tradingStatusEl.textContent = stats.is_trading_stopped ? 'STOPPED' : 'RUNNING';
@@ -278,6 +321,22 @@
                 }
             }
 
+            async function fetchTrades() {
+                 try {
+                    const response = await fetch('/api/trades');
+                    const trades = await response.json();
+                    tradesTableBody.innerHTML = ''; // Clear old data
+                    if (trades && trades.length > 0) {
+                        trades.forEach(trade => addTradeRow(trade));
+                    } else {
+                        tradesTableBody.innerHTML = '<tr><td colspan="7">No historical trades found.</td></tr>';
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch trades:", err);
+                    tradesTableBody.innerHTML = '<tr><td colspan="7">Error loading trades.</td></tr>';
+                }
+            }
+
             function addTradeRow(trade) {
                 const row = document.createElement('tr');
                 const pnlClass = trade.pnl >= 0 ? 'positive' : 'negative';
@@ -288,10 +347,11 @@
                     <td>${trade.qty}</td>
                     <td>${Number(trade.entry_price).toFixed(2)}</td>
                     <td>${Number(trade.exit_price).toFixed(2)}</td>
-                    <td class="${pnlClass}">$${Number(trade.pnl).toFixed(2)}</td>
+                    <td class="${pnlClass}">${Number(trade.pnl).toFixed(2)}</td>
                     <td>${new Date(trade.exit_time).toLocaleTimeString()}</td>
                 `;
-                tradesTableBody.appendChild(row);
+                // Prepend to show the latest trade first
+                tradesTableBody.prepend(row);
             }
 
             function disableControls(){
@@ -365,8 +425,9 @@
             // --- Init ---
             fetchInitialData();
             connectWebsockets();
-            setInterval(fetchPositions, 5000); // Refresh positions every 5 seconds
-            setInterval(fetchInitialData, 30000); // Periodically refresh other REST data
+            // No more polling, data will be pushed via WebSocket
+            // setInterval(fetchPositions, 5000);
+            // setInterval(fetchInitialData, 30000);
         });
     </script>
 </body>

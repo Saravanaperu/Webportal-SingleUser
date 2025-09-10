@@ -1,5 +1,5 @@
-from app.core.config import settings
-from app.core.logging import logger
+from ..core.config import settings
+from ..core.logging import logger
 
 class RiskManager:
     """

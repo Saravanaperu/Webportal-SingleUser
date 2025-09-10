@@ -1,5 +1,5 @@
 import pyotp
-from app.core.logging import logger
+from ..core.logging import logger
 from SmartApi import SmartConnect
 
 class AngelAuth:

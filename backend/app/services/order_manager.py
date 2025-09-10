@@ -1,8 +1,8 @@
 from datetime import datetime
-from app.core.logging import logger
-from app.services.risk_manager import RiskManager
-from app.models.trading import Order, Trade, HistoricalTrade
-from app.db.session import database
+from ..core.logging import logger
+from .risk_manager import RiskManager
+from ..models.trading import Order, Trade, HistoricalTrade
+from ..db.session import database
 
 class OrderManager:
     """
@@ -139,14 +139,24 @@ class OrderManager:
             }
             logger.info(f"New position opened on first fill for {symbol}.")
         else:
-            # Subsequent partial fill
+            # Logic for subsequent partial fills
             position = self.open_positions[symbol]
-            new_total_cost = position['total_cost'] + (fill_qty * fill_price)
-            new_total_qty = position['qty'] + fill_qty
-            position['entry_price'] = new_total_cost / new_total_qty
-            position['qty'] = new_total_qty
+
+            # The 'filledshares' from the broker is the CUMULATIVE quantity.
+            # We need to calculate the quantity of this specific fill.
+            last_fill_qty = fill_qty - position['qty']
+            if last_fill_qty <= 0:
+                logger.warning(f"Received a partial fill update for {symbol} with no new shares. Ignoring.")
+                return
+
+            # The 'averageprice' from the broker is the average for the ENTIRE order so far.
+            # We need to update our position's average price based on this.
+            new_total_cost = fill_price * fill_qty # The total cost is now based on the new average price
+
+            position['entry_price'] = new_total_cost / fill_qty
+            position['qty'] = fill_qty # The new quantity is the total filled shares
             position['total_cost'] = new_total_cost
-            logger.info(f"Position for {symbol} updated with partial fill.")
+            logger.info(f"Position for {symbol} updated. New Qty: {position['qty']}, New Avg Price: {position['entry_price']:.2f}")
 
         if status == "COMPLETE":
             del self.active_orders[broker_order_id]

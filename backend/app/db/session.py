@@ -1,7 +1,7 @@
 from databases import Database
 from sqlalchemy import create_engine
 from pathlib import Path
-from app.db.base import Base
+from .base import Base
 
 # --- Path Setup ---
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
