@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from ..core.config import settings, StrategyConfig
 from ..core.logging import logger
+from ..core.constants import INDEX_SYMBOLS
 from .order_manager import OrderManager
 from .risk_manager import RiskManager
 from .market_data_manager import market_data_manager
@@ -21,14 +22,7 @@ class OptionsScalpingStrategy:
     Focuses on high-probability setups with proper Greeks management.
     """
     
-    # Class constants to avoid duplication
-    INDEX_SYMBOLS = {
-        'BANKNIFTY': 'BANKNIFTY-INDEX',
-        'NIFTY': 'NIFTY 50',
-        'FINNIFTY': 'FINNIFTY'
-    }
-    
-    def __init__(self, order_manager: OrderManager, risk_manager: RiskManager, connector):
+    def __init__(self, order_manager: OrderManager, risk_manager: RiskManager, connector: Any):
         logger.info("Initializing Options Scalping Strategy...")
         self.order_manager = order_manager
         self.risk_manager = risk_manager
@@ -62,7 +56,7 @@ class OptionsScalpingStrategy:
         
         for index in self.trade_indices:
             try:
-                symbol = self.INDEX_SYMBOLS.get(index, index)
+                symbol = INDEX_SYMBOLS.get(index, index)
                 query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.asc()).limit(100)
                 results = await database.fetch_all(query)
                 
@@ -80,11 +74,11 @@ class OptionsScalpingStrategy:
                 
         logger.info("Options scalping warm-up complete.")
 
-    def start(self):
+    def start(self) -> None:
         self.is_running = True
         logger.info("Trading Strategy started.")
 
-    def stop(self):
+    def stop(self) -> None:
         self.is_running = False
         logger.info("Trading Strategy stopped.")
 
@@ -126,15 +120,44 @@ class OptionsScalpingStrategy:
         
         return df
 
+    def _is_bullish_setup(self, latest: pd.Series, price: float, momentum: float, price_velocity: float, volume_surge: float) -> int:
+        """Check for a bullish setup based on technical indicators."""
+        bullish_signals = [
+            latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],
+            price > latest['VWAP'],
+            latest['SUPERTd'] == 1,
+            latest['RSI_FAST'] > 40 and latest['RSI_FAST'] < 75,
+            latest['STOCH_K'] > latest['STOCH_D'] and latest['STOCH_K'] > 20,
+            price > latest['BB_M'],
+            momentum > self.params.scalping_thresholds.momentum,
+            price_velocity > 0,
+            volume_surge > self.params.volume_surge_threshold,
+            latest['higher_high']
+        ]
+        return sum(bullish_signals)
+
+    def _is_bearish_setup(self, latest: pd.Series, price: float, momentum: float, price_velocity: float, volume_surge: float) -> int:
+        """Check for a bearish setup based on technical indicators."""
+        bearish_signals = [
+            latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],
+            price < latest['VWAP'],
+            latest['SUPERTd'] == -1,
+            latest['RSI_FAST'] < 60 and latest['RSI_FAST'] > 25,
+            latest['STOCH_K'] < latest['STOCH_D'] and latest['STOCH_K'] < 80,
+            price < latest['BB_M'],
+            momentum < -self.params.scalping_thresholds.momentum,
+            price_velocity < 0,
+            volume_surge > self.params.volume_surge_threshold,
+            latest['lower_low']
+        ]
+        return sum(bearish_signals)
+
     async def analyze_options_entry(self, index: str) -> Optional[Dict]:
         """Analyze underlying index for options entry opportunities."""
         try:
-            # Check signal cooldown
             now = datetime.utcnow()
-            if index in self.last_signal_time:
-                time_diff = (now - self.last_signal_time[index]).total_seconds()
-                if time_diff < self.signal_cooldown:
-                    return None
+            if index in self.last_signal_time and (now - self.last_signal_time[index]).total_seconds() < self.signal_cooldown:
+                return None
             
             df = self.index_candle_history.get(index)
             if df is None or df.empty or len(df) < 30:
@@ -142,52 +165,18 @@ class OptionsScalpingStrategy:
 
             df = self.calculate_scalping_indicators(df.copy())
             latest = df.iloc[-1]
-            prev = df.iloc[-2]
             
-            # Skip if indicators not ready
-            required_indicators = ['RSI_FAST', 'STOCH_K', 'BB_L', 'SUPERTd']
+            required_indicators = ['RSI_FAST', 'STOCH_K', 'BB_L', 'SUPERTd', 'momentum_strength', 'price_velocity', 'volume_surge']
             if any(pd.isna(latest[ind]) for ind in required_indicators):
                 return None
 
             price = latest['close']
-            
-            # Market condition analysis
             momentum = latest['momentum_strength']
-            volatility_spike = latest.get('volatility_spike', 0)
-            volume_surge = latest.get('volume_surge', 1)
-            price_velocity = latest.get('price_velocity', 0)
+            price_velocity = latest['price_velocity']
+            volume_surge = latest['volume_surge']
             
-            # Bullish options setup (for CE buying)
-            bullish_signals = [
-                latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],  # Trend up
-                price > latest['VWAP'],  # Above VWAP
-                latest['SUPERTd'] == 1,  # SuperTrend bullish
-                latest['RSI_FAST'] > 40 and latest['RSI_FAST'] < 75,  # RSI in momentum zone
-                latest['STOCH_K'] > latest['STOCH_D'] and latest['STOCH_K'] > 20,  # Stoch momentum
-                price > latest['BB_M'],  # Above BB middle
-                momentum > 0.15,  # Strong positive momentum
-                price_velocity > 0,  # Positive velocity
-                volume_surge > self.params.volume_surge_threshold,  # Volume confirmation
-                latest['higher_high']  # Market structure
-            ]
-            
-            # Bearish options setup (for PE buying)
-            bearish_signals = [
-                latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],  # Trend down
-                price < latest['VWAP'],  # Below VWAP
-                latest['SUPERTd'] == -1,  # SuperTrend bearish
-                latest['RSI_FAST'] < 60 and latest['RSI_FAST'] > 25,  # RSI in momentum zone
-                latest['STOCH_K'] < latest['STOCH_D'] and latest['STOCH_K'] < 80,  # Stoch momentum
-                price < latest['BB_M'],  # Below BB middle
-                momentum < -0.15,  # Strong negative momentum
-                price_velocity < 0,  # Negative velocity
-                volume_surge > self.params.volume_surge_threshold,  # Volume confirmation
-                latest['lower_low']  # Market structure
-            ]
-            
-            # Determine signal direction and strength
-            bullish_score = sum(bullish_signals)
-            bearish_score = sum(bearish_signals)
+            bullish_score = self._is_bullish_setup(latest, price, momentum, price_velocity, volume_surge)
+            bearish_score = self._is_bearish_setup(latest, price, momentum, price_velocity, volume_surge)
             
             if bullish_score >= self.params.min_confirmations:
                 direction = 'BULLISH'
@@ -232,7 +221,7 @@ class OptionsScalpingStrategy:
         for index in self.trade_indices:
             try:
                 # Update index candle data
-                symbol = self.INDEX_SYMBOLS.get(index, index)
+                symbol = INDEX_SYMBOLS.get(index, index)
                 new_candle_df = await market_data_manager.get_1m_candle(symbol)
                 
                 if new_candle_df is not None:
@@ -348,7 +337,7 @@ class OptionsScalpingStrategy:
                         logger.info(f"Updated trailing SL for {symbol}: {new_sl:.2f}")
                         
                 # 6. Time-based exit for scalping
-                elif time_in_trade > 10:  # Max 10 minutes for scalping
+                elif time_in_trade > self.params.scalping_thresholds.max_trade_hold_minutes:  # Max 10 minutes for scalping
                     should_exit = True
                     exit_reason = "TIME_EXIT"
                     
@@ -363,6 +352,28 @@ class OptionsScalpingStrategy:
                     
             except Exception as e:
                 logger.error(f"Error managing position {position.get('symbol', 'unknown')}: {e}", exc_info=True)
+
+    def is_high_volume_session(self) -> bool:
+        """Check if current time is in high volume trading session."""
+        now = datetime.now().time()
+
+        for session in settings.trading.high_volume_sessions:
+            start = datetime.strptime(session['start'], '%H:%M').time()
+            end = datetime.strptime(session['end'], '%H:%M').time()
+            if start <= now <= end:
+                return True
+        return False
+
+    def should_avoid_trading(self) -> bool:
+        """Check if current time is in avoid trading session."""
+        now = datetime.now().time()
+
+        for session in settings.trading.avoid_sessions:
+            start = datetime.strptime(session['start'], '%H:%M').time()
+            end = datetime.strptime(session['end'], '%H:%M').time()
+            if start <= now <= end:
+                return True
+        return False
     
     def is_near_market_close(self) -> bool:
         """Check if we're near market close time."""
@@ -395,12 +406,12 @@ class OptionsScalpingStrategy:
                     continue
                 
                 # Skip avoid sessions (lunch break)
-                if self.options_manager.should_avoid_trading():
+                if self.should_avoid_trading():
                     await asyncio.sleep(10)
                     continue
                 
                 # Determine scan frequency based on market session
-                is_high_volume = self.options_manager.is_high_volume_session()
+                is_high_volume = self.is_high_volume_session()
                 scan_interval = 1 if is_high_volume else 3  # Faster scanning in high volume
                 
                 # Main strategy operations

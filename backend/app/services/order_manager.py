@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, List
 from ..core.logging import logger
 from ..core.config import settings
 from .risk_manager import RiskManager
@@ -10,7 +10,7 @@ class OrderManager:
     """
     Manages the lifecycle of orders, from signal to execution, and tracks open positions.
     """
-    def __init__(self, connector, risk_manager: RiskManager, instrument_manager, db=database):
+    def __init__(self, connector: Any, risk_manager: RiskManager, instrument_manager: Any, db: Any = database):
         logger.info("Initializing Order Manager...")
         self.connector = connector
         self.risk_manager = risk_manager
@@ -20,12 +20,8 @@ class OrderManager:
         self.open_positions = {}  # Maps symbol to position details
         self.daily_trades_count = 0
         self.daily_pnl = 0.0
-        # Cache lot sizes
-        self._lot_sizes = {
-            'BANKNIFTY': 15,
-            'NIFTY': 50,
-            'FINNIFTY': 40
-        }
+        # Load lot sizes from config
+        self._lot_sizes = settings.trading.lot_sizes
 
     async def create_options_order(self, signal: dict, position_size: int):
         """Creates and places an options order optimized for scalping."""
@@ -132,16 +128,12 @@ class OrderManager:
             risk_amount = account_balance * (settings.risk.risk_per_trade_percent / 100)
             
             # For options, risk is the premium paid
-            # Use cached lot sizes
+            # Use lot sizes from config
             lot_sizes = self._lot_sizes
             
             # Determine index from symbol
-            index = None
-            for idx in lot_sizes.keys():
-                if idx in signal['symbol']:
-                    index = idx
-                    break
-                    
+            index = next((idx for idx in lot_sizes if idx in signal['symbol']), None)
+
             if not index:
                 logger.error(f"Could not determine index for {signal['symbol']}")
                 return 0
@@ -275,10 +267,10 @@ class OrderManager:
         if status == "COMPLETE":
             del self.active_orders[broker_order_id]
 
-    def get_open_positions(self) -> list[dict]:
+    def get_open_positions(self) -> List[Dict]:
         return list(self.open_positions.values())
 
-    async def close_position(self, position: dict, reason: str):
+    async def close_position(self, position: Dict, reason: str) -> None:
         """Close an options position."""
         symbol = position['symbol']
         logger.info(f"Closing options position {symbol} due to {reason}")

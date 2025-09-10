@@ -33,6 +33,18 @@ strategy:
   max_delta: 0.8
   max_theta: -0.5
   min_gamma: 0.01
+  # NEW: Scalping score weights
+  scoring_weights:
+    delta_multiplier: 100
+    gamma_multiplier: 10000
+    theta_base: 10
+    premium_target: 50
+    premium_divisor: 10
+    moneyness_divisor: 100
+  # NEW: Scalping thresholds
+  scalping_thresholds:
+    momentum: 0.15
+    max_trade_hold_minutes: 10
 risk:
   risk_per_trade_percent: 1.0  # Higher for options
   max_daily_loss_percent: 3.0
@@ -68,6 +80,13 @@ trading:
       end: '13:00'  # Lunch break low volume
   paper_trading: false  # Live trading for options
   square_off_time: '15:10'  # Square off before close
+  # NEW: Trading parameters
+  lot_sizes:
+    BANKNIFTY: 15
+    NIFTY: 50
+    FINNIFTY: 40
+  risk_free_rate: 0.06
+  default_volatility: 0.2
 cooldown:
   after_consecutive_losses_minutes: 20
   after_big_loss_minutes: 45
