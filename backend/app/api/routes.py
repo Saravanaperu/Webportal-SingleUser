@@ -164,24 +164,61 @@ async def set_strategy_parameters(request: Request, params: StrategyConfig):
 
 @router.get("/stats")
 async def get_stats(request: Request):
-    """Returns detailed daily trading statistics."""
+    """
+    Returns a comprehensive overview of trading statistics, account status,
+    and application health.
+    """
     try:
+        # --- Service Access ---
         risk_manager = request.app.state.risk_manager
         market_data_manager = request.app.state.market_data_manager
+        strategy = request.app.state.strategy
+        order_manager = request.app.state.order_manager
+
+        # --- Data Calculation ---
+        # 1. Account Details
+        account_details = await order_manager.connector.get_account_details()
+        balance = account_details.get('balance', 0.0) if account_details else 0.0
+        margin = account_details.get('margin', 0.0) if account_details else 0.0
+
+        # 2. Data Feed Status
+        is_feed_connected = False
+        last_tick = market_data_manager.get_last_tick_time()
+        if last_tick:
+            # Check if the last tick was within the last 15 seconds
+            time_diff = (datetime.utcnow() - last_tick).total_seconds()
+            if time_diff < 15:
+                is_feed_connected = True
+
+        # --- Response Assembly ---
         stats = {
-            "pnl": round(risk_manager.daily_pnl, 2),
-            "equity": round(risk_manager.equity, 2),
+            # Account Info
+            "balance": round(balance, 2),
+            "margin": round(margin, 2),
+
+            # Performance Stats
+            "realized_pnl": round(risk_manager.daily_pnl, 2),
             "total_trades": risk_manager.total_trades,
             "win_rate": round(risk_manager.win_rate, 2),
-            "avg_win_pnl": round(risk_manager.avg_win_pnl, 2),
-            "avg_loss_pnl": round(risk_manager.avg_loss_pnl, 2),
-            "consecutive_losses": risk_manager.consecutive_losses,
-            "is_trading_stopped": risk_manager.is_trading_stopped,
-            "last_tick_time": market_data_manager.last_tick_time
+            "avg_win": round(risk_manager.avg_win_pnl, 2),
+            "avg_loss": round(risk_manager.avg_loss_pnl, 2),
+
+            # System Status
+            "is_strategy_running": strategy.is_running,
+            "data_feed_connected": is_feed_connected,
         }
         return stats
     except AttributeError:
-        return {"error": "Services not initialized. Cannot get stats."}
+        # This is a common case during startup, return a default state
+        return {
+            "balance": 0, "margin": 0, "realized_pnl": 0,
+            "total_trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
+            "is_strategy_running": False, "data_feed_connected": False,
+            "error": "Services not fully initialized."
+        }
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch statistics.")
 
 # === WebSocket Endpoint ===
 
