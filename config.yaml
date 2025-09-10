@@ -1,37 +1,73 @@
 strategy:
   trade_indices:
   - BANKNIFTY
+  - NIFTY
+  - FINNIFTY
   instrument_types:
   - OPTIDX
   timeframe: 1m
-  ema_short: 10
-  ema_long: 22
-  supertrend_period: 11
-  supertrend_multiplier: 3.5
-  atr_period: 11
-  min_confirmations: 7
-  rsi_period: 7
+  # Options-specific parameters
+  strike_selection:
+    atm_range: 2  # +/- strikes from ATM
+    prefer_otm: true
+    min_premium: 5.0
+    max_premium: 200.0
+  expiry_preference:
+    - weekly  # Prefer weekly expiries
+    - monthly
+    max_days_to_expiry: 7
+  # Enhanced scalping indicators
+  ema_short: 9
+  ema_long: 21
+  supertrend_period: 10
+  supertrend_multiplier: 3.0
+  atr_period: 14
+  min_confirmations: 8
+  rsi_period: 5
   bb_period: 20
   stoch_k: 5
   stoch_d: 3
-  volume_surge_threshold: 1.5
-  min_volatility: 0.3
-  max_volatility: 2.0
+  volume_surge_threshold: 2.0
+  min_volatility: 0.5
+  max_volatility: 3.0
+  # Options Greeks thresholds
+  min_delta: 0.3
+  max_delta: 0.8
+  max_theta: -0.5
+  min_gamma: 0.01
 risk:
-  risk_per_trade_percent: 0.4
-  max_daily_loss_percent: 2.5
-  consecutive_losses_stop: 4
+  risk_per_trade_percent: 1.0  # Higher for options
+  max_daily_loss_percent: 3.0
+  consecutive_losses_stop: 3
+  max_positions: 3
+  # Options-specific risk parameters
+  max_premium_risk_percent: 2.0
+  theta_decay_exit_minutes: 15
+  iv_spike_threshold: 20.0
   trailing_stop:
-    activate_at_atr: 0.3
-    trail_by_atr: 0.4
-  take_profit_atr: 1.0
+    activate_at_profit_percent: 25
+    trail_by_percent: 15
+  take_profit_percent: 50
+  stop_loss_percent: 40
   volatility_adjustment:
-    high_vol_threshold_percent: 0.8
-    risk_reduction_factor: 0.6
+    high_vol_threshold_percent: 1.2
+    risk_reduction_factor: 0.5
 trading:
   hours:
     start: 09:15
     end: '15:20'
-  paper_trading: true
+  # Options scalping optimal sessions
+  high_volume_sessions:
+    - start: '09:15'
+      end: '10:30'
+    - start: '14:30'
+      end: '15:15'
+  avoid_sessions:
+    - start: '12:00'
+      end: '13:00'  # Lunch break low volume
+  paper_trading: false  # Live trading for options
+  square_off_time: '15:10'  # Square off before close
 cooldown:
-  after_consecutive_losses_minutes: 30
+  after_consecutive_losses_minutes: 20
+  after_big_loss_minutes: 45
+  big_loss_threshold_percent: 1.5

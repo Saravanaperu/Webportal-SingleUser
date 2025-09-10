@@ -31,14 +31,16 @@ class Order(Base):
     symbol = Column(String)
     side = Column(String)
     qty = Column(Integer)
-    price = Column(Float, nullable=True) # For limit orders
-    status = Column(String) # e.g., 'PENDING', 'FILLED', 'CANCELLED'
-    reason = Column(String, nullable=True) # For failed orders
+    price = Column(Float, nullable=True)
+    status = Column(String)
+    reason = Column(String, nullable=True)
     ts = Column(DateTime)
-    # Fields to store from the signal for position creation
+    # Options-specific fields
     sl = Column(Float, nullable=True)
     tp = Column(Float, nullable=True)
     atr_at_entry = Column(Float, nullable=True)
+    confidence = Column(Integer, nullable=True)
+    greeks = Column(String, nullable=True)  # JSON string of Greeks
 
 class Trade(Base):
     __tablename__ = "trades"
@@ -68,3 +70,10 @@ class HistoricalTrade(Base):
     pnl = Column(Float)
     entry_time = Column(DateTime)
     exit_time = Column(DateTime)
+    # Options-specific fields
+    holding_time_minutes = Column(Float, nullable=True)
+    pnl_percentage = Column(Float, nullable=True)
+    option_type = Column(String, nullable=True)  # CE or PE
+    strike_price = Column(Float, nullable=True)
+    underlying_price_entry = Column(Float, nullable=True)
+    underlying_price_exit = Column(Float, nullable=True)

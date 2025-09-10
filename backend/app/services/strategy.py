@@ -3,6 +3,7 @@ import pandas as pd
 import pandas_ta as ta
 from datetime import datetime, time, timedelta
 import numpy as np
+from typing import Dict, List, Optional
 
 from ..core.config import settings, StrategyConfig
 from ..core.logging import logger
@@ -10,57 +11,71 @@ from .order_manager import OrderManager
 from .risk_manager import RiskManager
 from .market_data_manager import market_data_manager
 from .instrument_manager import instrument_manager
+from .options_manager import get_options_manager
 from ..db.session import database
 from ..models.trading import Candle
 
-class TradingStrategy:
+class OptionsScalpingStrategy:
     """
-    Implements the core scalping strategy, generating signals based on technical indicators.
+    Advanced options scalping strategy optimized for Indian markets.
+    Focuses on high-probability setups with proper Greeks management.
     """
     def __init__(self, order_manager: OrderManager, risk_manager: RiskManager, connector):
-        logger.info("Initializing Trading Strategy...")
+        logger.info("Initializing Options Scalping Strategy...")
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.connector = connector
-        self.params = settings.strategy # Hold a local copy of the params
-        self.instruments = self.params.instruments
+        self.params = settings.strategy
+        self.trade_indices = self.params.trade_indices
         self.is_running = False
         self.active_trades = {}
-        self.candle_history = {symbol: pd.DataFrame() for symbol in self.instruments}
+        self.index_candle_history = {index: pd.DataFrame() for index in self.trade_indices}
+        self.options_manager = get_options_manager(connector.rest_client, instrument_manager)
+        self.last_signal_time = {}
+        self.signal_cooldown = 30  # seconds between signals for same index
 
     def update_parameters(self, new_params: StrategyConfig):
         """
         Updates the strategy parameters safely.
         """
-        logger.info(f"Updating strategy parameters to: {new_params.dict()}")
+        logger.info(f"Updating options scalping parameters: {new_params.dict()}")
         self.params = new_params
-        # If instruments change, we would need more complex logic to re-subscribe websockets etc.
-        # For now, we assume the instrument list is static.
-        self.instruments = self.params.instruments
-        logger.info("Strategy parameters updated.")
+        self.trade_indices = self.params.trade_indices
+        logger.info("Options scalping parameters updated.")
 
     async def warm_up(self):
         """
-        Loads the last N candles from the database to warm up indicators.
+        Loads historical data for underlying indices to warm up indicators.
         """
-        logger.info("Warming up indicators with historical data from database...")
-        for symbol in self.instruments:
+        logger.info("Warming up options scalping indicators...")
+        
+        # Map indices to their spot symbols for data
+        index_symbols = {
+            'BANKNIFTY': 'BANKNIFTY-INDEX',
+            'NIFTY': 'NIFTY 50', 
+            'FINNIFTY': 'FINNIFTY'
+        }
+        
+        for index in self.trade_indices:
             try:
-                query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.desc()).limit(200)
+                symbol = index_symbols.get(index, index)
+                query = Candle.__table__.select().where(Candle.symbol == symbol).order_by(Candle.ts.desc()).limit(100)
                 results = await database.fetch_all(query)
+                
                 if results:
-                    # The data is fetched in descending order, so we need to reverse it
                     results.reverse()
                     df = pd.DataFrame(results)
                     df['timestamp'] = pd.to_datetime(df['ts'])
                     df.set_index('timestamp', inplace=True)
-                    self.candle_history[symbol] = df
-                    logger.info(f"Successfully warmed up {len(df)} candles for {symbol} from DB.")
+                    self.index_candle_history[index] = df
+                    logger.info(f"Warmed up {len(df)} candles for {index} index")
                 else:
-                    logger.warning(f"No historical data found in DB for {symbol}. Will build history from live data.")
+                    logger.warning(f"No historical data for {index}. Building from live data.")
+                    
             except Exception as e:
-                logger.error(f"Error during DB warm-up for {symbol}: {e}", exc_info=True)
-        logger.info("Indicator warm-up complete.")
+                logger.error(f"Error warming up {index}: {e}", exc_info=True)
+                
+        logger.info("Options scalping warm-up complete.")
 
     def start(self):
         self.is_running = True
@@ -70,219 +85,344 @@ class TradingStrategy:
         self.is_running = False
         logger.info("Trading Strategy stopped.")
 
-    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Enhanced indicators for high-profit scalping."""
-        # Core indicators
+    def calculate_scalping_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate optimized indicators for options scalping."""
+        if len(df) < 30:
+            return df
+            
+        # Fast trend indicators
         df.ta.ema(length=self.params.ema_short, append=True, col_names=(f'EMA_{self.params.ema_short}',))
         df.ta.ema(length=self.params.ema_long, append=True, col_names=(f'EMA_{self.params.ema_long}',))
         df.ta.vwap(append=True, col_names=('VWAP',))
+        
+        # Momentum oscillators
+        df.ta.rsi(length=self.params.rsi_period, append=True, col_names=('RSI_FAST',))
+        df.ta.stoch(k=self.params.stoch_k, d=self.params.stoch_d, append=True, col_names=('STOCH_K', 'STOCH_D'))
+        
+        # Volatility and trend
         df.ta.supertrend(period=self.params.supertrend_period, multiplier=self.params.supertrend_multiplier,
                          append=True, col_names=('SUPERT', 'SUPERTd', 'SUPERTl', 'SUPERTs'))
         df.ta.atr(length=self.params.atr_period, append=True, col_names=(f'ATR_{self.params.atr_period}',))
+        df.ta.bbands(length=self.params.bb_period, std=2, append=True, col_names=('BB_L', 'BB_M', 'BB_U', 'BB_W', 'BB_P'))
         
-        # High-profit scalping indicators
-        df.ta.rsi(length=7, append=True, col_names=('RSI_7',))  # Fast RSI for momentum
-        df.ta.bbands(length=20, std=2, append=True, col_names=('BB_L', 'BB_M', 'BB_U', 'BB_W', 'BB_P'))
-        df.ta.stoch(k=5, d=3, append=True, col_names=('STOCH_K', 'STOCH_D'))  # Fast stochastic
+        # Options-specific indicators
+        df['price_velocity'] = df['close'].diff().rolling(3).mean()  # Price acceleration
+        df['volatility_spike'] = df[f'ATR_{self.params.atr_period}'].rolling(5).std()
+        df['momentum_strength'] = (df['close'] - df['close'].shift(5)) / df['close'].shift(5) * 100
         
-        # Volume indicators for confirmation
-        df.ta.ad(append=True, col_names=('AD',))  # Accumulation/Distribution
-        df['volume_sma'] = df['volume'].rolling(20).mean() if 'volume' in df.columns else 0
-        
-        # Price action patterns
-        df['price_momentum'] = (df['close'] - df['close'].shift(3)) / df['close'].shift(3) * 100
-        df['volatility_ratio'] = df[f'ATR_{self.params.atr_period}'] / df['close'] * 100
+        # Volume analysis
+        if 'volume' in df.columns:
+            df['volume_ma'] = df['volume'].rolling(10).mean()
+            df['volume_surge'] = df['volume'] / df['volume_ma']
+        else:
+            df['volume_surge'] = 1.0
+            
+        # Market structure
+        df['higher_high'] = (df['high'] > df['high'].shift(1)) & (df['high'].shift(1) > df['high'].shift(2))
+        df['lower_low'] = (df['low'] < df['low'].shift(1)) & (df['low'].shift(1) < df['low'].shift(2))
         
         return df
 
-    async def check_entry_conditions(self, symbol: str):
-        """Advanced scalping entry with multiple confirmations for higher profits."""
+    async def analyze_options_entry(self, index: str) -> Optional[Dict]:
+        """Analyze underlying index for options entry opportunities."""
         try:
-            df = self.candle_history.get(symbol)
+            # Check signal cooldown
+            now = datetime.utcnow()
+            if index in self.last_signal_time:
+                time_diff = (now - self.last_signal_time[index]).total_seconds()
+                if time_diff < self.signal_cooldown:
+                    return None
+            
+            df = self.index_candle_history.get(index)
             if df is None or df.empty or len(df) < 30:
-                return
+                return None
 
-            df = self.calculate_indicators(df.copy())
+            df = self.calculate_scalping_indicators(df.copy())
             latest = df.iloc[-1]
             prev = df.iloc[-2]
-            price = latest['close']
-            atr = latest[f'ATR_{self.params.atr_period}']
-
-            # Skip if indicators not ready
-            if pd.isna([latest['RSI_7'], latest['STOCH_K'], latest['BB_L']]).any():
-                return
-
-            # Market condition filters
-            volatility = latest['volatility_ratio']
-            momentum = latest['price_momentum']
-            volume_surge = latest.get('volume', 0) > latest.get('volume_sma', 1) * 1.5
             
-            # High-probability BUY conditions
-            buy_conditions = [
-                latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],  # Trend
+            # Skip if indicators not ready
+            required_indicators = ['RSI_FAST', 'STOCH_K', 'BB_L', 'SUPERTd']
+            if any(pd.isna(latest[ind]) for ind in required_indicators):
+                return None
+
+            price = latest['close']
+            
+            # Market condition analysis
+            momentum = latest['momentum_strength']
+            volatility_spike = latest.get('volatility_spike', 0)
+            volume_surge = latest.get('volume_surge', 1)
+            price_velocity = latest.get('price_velocity', 0)
+            
+            # Bullish options setup (for CE buying)
+            bullish_signals = [
+                latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],  # Trend up
                 price > latest['VWAP'],  # Above VWAP
                 latest['SUPERTd'] == 1,  # SuperTrend bullish
-                latest['RSI_7'] > 30 and latest['RSI_7'] < 70,  # RSI not extreme
-                latest['STOCH_K'] > latest['STOCH_D'],  # Stoch momentum
-                price > latest['BB_L'] and price < latest['BB_U'],  # Within Bollinger Bands
-                momentum > 0.1,  # Positive momentum
-                volatility > 0.3 and volatility < 2.0,  # Optimal volatility
-                volume_surge  # Volume confirmation
+                latest['RSI_FAST'] > 40 and latest['RSI_FAST'] < 75,  # RSI in momentum zone
+                latest['STOCH_K'] > latest['STOCH_D'] and latest['STOCH_K'] > 20,  # Stoch momentum
+                price > latest['BB_M'],  # Above BB middle
+                momentum > 0.15,  # Strong positive momentum
+                price_velocity > 0,  # Positive velocity
+                volume_surge > self.params.volume_surge_threshold,  # Volume confirmation
+                latest['higher_high']  # Market structure
             ]
             
-            # High-probability SELL conditions
-            sell_conditions = [
-                latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],
-                price < latest['VWAP'],
-                latest['SUPERTd'] == -1,
-                latest['RSI_7'] > 30 and latest['RSI_7'] < 70,
-                latest['STOCH_K'] < latest['STOCH_D'],
-                price > latest['BB_L'] and price < latest['BB_U'],
-                momentum < -0.1,
-                volatility > 0.3 and volatility < 2.0,
-                volume_surge
+            # Bearish options setup (for PE buying)
+            bearish_signals = [
+                latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],  # Trend down
+                price < latest['VWAP'],  # Below VWAP
+                latest['SUPERTd'] == -1,  # SuperTrend bearish
+                latest['RSI_FAST'] < 60 and latest['RSI_FAST'] > 25,  # RSI in momentum zone
+                latest['STOCH_K'] < latest['STOCH_D'] and latest['STOCH_K'] < 80,  # Stoch momentum
+                price < latest['BB_M'],  # Below BB middle
+                momentum < -0.15,  # Strong negative momentum
+                price_velocity < 0,  # Negative velocity
+                volume_surge > self.params.volume_surge_threshold,  # Volume confirmation
+                latest['lower_low']  # Market structure
             ]
-
-            # Enhanced signal generation with dynamic targets
-            if sum(buy_conditions) >= 7:  # Require 7/9 confirmations
-                tp_multiplier = 1.2 if sum(buy_conditions) == 9 else 0.8  # Higher TP for perfect signals
-                signal = {
-                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'BUY', 'entry': price,
-                    'sl': price - (0.8 * atr), 'tp': price + (tp_multiplier * atr), 'atr_at_entry': atr,
-                    'reason': f'SCALP_BUY_CONF_{sum(buy_conditions)}', 'confidence': sum(buy_conditions)
-                }
-                logger.info(f"HIGH-PROB BUY: {signal}")
-                await self.order_manager.handle_signal(signal)
-                
-            elif sum(sell_conditions) >= 7:
-                tp_multiplier = 1.2 if sum(sell_conditions) == 9 else 0.8
-                signal = {
-                    'symbol': symbol, 'ts': datetime.utcnow(), 'side': 'SELL', 'entry': price,
-                    'sl': price + (0.8 * atr), 'tp': price - (tp_multiplier * atr), 'atr_at_entry': atr,
-                    'reason': f'SCALP_SELL_CONF_{sum(sell_conditions)}', 'confidence': sum(sell_conditions)
-                }
-                logger.info(f"HIGH-PROB SELL: {signal}")
-                await self.order_manager.handle_signal(signal)
-                
+            
+            # Determine signal direction and strength
+            bullish_score = sum(bullish_signals)
+            bearish_score = sum(bearish_signals)
+            
+            if bullish_score >= self.params.min_confirmations:
+                direction = 'BULLISH'
+                confidence = bullish_score
+            elif bearish_score >= self.params.min_confirmations:
+                direction = 'BEARISH'
+                confidence = bearish_score
+            else:
+                return None
+            
+            # Get best options for the signal
+            best_options = await self.options_manager.get_best_strikes_for_scalping(
+                index, 'BUY' if direction == 'BULLISH' else 'SELL'
+            )
+            
+            if not best_options:
+                logger.warning(f"No suitable options found for {index} {direction} signal")
+                return None
+            
+            # Select the best option
+            selected_option = best_options[0]  # Highest scalping score
+            
+            self.last_signal_time[index] = now
+            
+            return {
+                'index': index,
+                'direction': direction,
+                'confidence': confidence,
+                'option': selected_option,
+                'underlying_price': price,
+                'momentum': momentum,
+                'volatility_spike': volatility_spike,
+                'timestamp': now
+            }
+            
         except Exception as e:
-            logger.error(f"Error in enhanced entry logic for {symbol}: {e}", exc_info=True)
+            logger.error(f"Error analyzing options entry for {index}: {e}", exc_info=True)
+            return None
 
-    async def update_and_check_candles(self):
-        """
-        Checks for new 1-minute candles from the MarketDataManager,
-        updates the history, and triggers entry condition checks.
-        """
-        for symbol in self.instruments:
-            # get_1m_candle now returns a new, completed candle that was saved to DB, or None
-            new_candle_df = await market_data_manager.get_1m_candle(symbol)
-            if new_candle_df is not None:
-                logger.info(f"New 1m candle processed for {symbol} at {new_candle_df.index[0]}.")
-                # Append the new candle and check for signals
-                self.candle_history[symbol] = pd.concat([self.candle_history[symbol], new_candle_df])
-                self.candle_history[symbol] = self.candle_history[symbol].tail(200)
+    async def scan_for_options_signals(self):
+        """Scan underlying indices for options trading opportunities."""
+        for index in self.trade_indices:
+            try:
+                # Update index candle data
+                index_symbols = {
+                    'BANKNIFTY': 'BANKNIFTY-INDEX',
+                    'NIFTY': 'NIFTY 50',
+                    'FINNIFTY': 'FINNIFTY'
+                }
+                
+                symbol = index_symbols.get(index, index)
+                new_candle_df = await market_data_manager.get_1m_candle(symbol)
+                
+                if new_candle_df is not None:
+                    # Update candle history
+                    self.index_candle_history[index] = pd.concat([
+                        self.index_candle_history[index], new_candle_df
+                    ]).tail(100)
+                    
+                    # Analyze for options entry
+                    signal = await self.analyze_options_entry(index)
+                    if signal:
+                        await self.execute_options_signal(signal)
+                        
+            except Exception as e:
+                logger.error(f"Error scanning {index} for options signals: {e}", exc_info=True)
 
-                await self.check_entry_conditions(symbol)
-
-    async def manage_active_trades(self):
-        """Advanced exit management for maximum profit extraction."""
+    async def execute_options_signal(self, signal: Dict):
+        """Execute options trade based on signal."""
+        try:
+            option = signal['option']
+            symbol = option['symbol']
+            
+            # Check if we already have position in this option
+            if symbol in [pos['symbol'] for pos in self.order_manager.get_open_positions()]:
+                return
+            
+            # Create signal for order manager
+            entry_price = option['ltp']
+            
+            # Calculate stop loss and take profit based on premium
+            sl_pct = settings.risk.stop_loss_percent / 100
+            tp_pct = settings.risk.take_profit_percent / 100
+            
+            trade_signal = {
+                'symbol': symbol,
+                'ts': signal['timestamp'],
+                'side': 'BUY',  # Always buying options for scalping
+                'entry': entry_price,
+                'sl': entry_price * (1 - sl_pct),
+                'tp': entry_price * (1 + tp_pct),
+                'reason': f"OPTIONS_SCALP_{signal['direction']}_CONF_{signal['confidence']}",
+                'confidence': signal['confidence'],
+                'greeks': option['greeks'],
+                'underlying_price': signal['underlying_price']
+            }
+            
+            logger.info(f"Executing options signal: {trade_signal}")
+            await self.order_manager.handle_signal(trade_signal)
+            
+        except Exception as e:
+            logger.error(f"Error executing options signal: {e}", exc_info=True)
+    
+    async def manage_options_positions(self):
+        """Advanced options position management with Greeks monitoring."""
         open_positions = self.order_manager.get_open_positions()
         if not open_positions:
             return
             
         for position in open_positions:
-            symbol = position['symbol']
-            live_price = await market_data_manager.get_latest_price(symbol)
-            if not live_price:
-                continue
-
-            side = position['side']
-            entry_price = position['entry_price']
-            sl = position['sl']
-            tp = position['tp']
-            entry_time = position['entry_time']
-            atr = position.get('atr_at_entry', 0)
-            confidence = position.get('confidence', 7)
-            
-            # Calculate current P&L and time in trade
-            pnl_pct = ((live_price - entry_price) / entry_price * 100) if side == 'BUY' else ((entry_price - live_price) / entry_price * 100)
-            time_in_trade = (datetime.utcnow() - entry_time).total_seconds() / 60
-            
-            # Dynamic exit conditions based on performance
-            is_sl_hit = (side == 'BUY' and live_price <= sl) or (side == 'SELL' and live_price >= sl)
-            is_tp_hit = (side == 'BUY' and live_price >= tp) or (side == 'SELL' and live_price <= tp)
-            
-            # Profit-maximizing exit logic
-            if is_sl_hit:
-                await self.order_manager.close_position(position, "STOP_LOSS")
-            elif is_tp_hit:
-                # Partial profit taking for high-confidence trades
-                if confidence >= 8 and pnl_pct > 0.8:
-                    # Let 50% run for bigger profits, close 50%
-                    logger.info(f"Partial TP hit for high-confidence {symbol}. P&L: {pnl_pct:.2f}%")
-                await self.order_manager.close_position(position, "TAKE_PROFIT")
-            elif pnl_pct > 1.5:  # Exceptional profit - trail tightly
-                trail_amount = 0.3 * atr
-                if side == 'BUY':
-                    new_sl = max(sl, live_price - trail_amount)
-                    if new_sl > sl:
+            try:
+                symbol = position['symbol']
+                
+                # Get current option price
+                option_data = await self.options_manager.get_option_data(symbol)
+                if not option_data:
+                    continue
+                    
+                live_price = float(option_data.get('ltp', 0))
+                if live_price <= 0:
+                    continue
+                
+                entry_price = position['entry_price']
+                entry_time = position['entry_time']
+                confidence = position.get('confidence', 7)
+                
+                # Calculate P&L and time metrics
+                pnl_pct = (live_price - entry_price) / entry_price * 100
+                time_in_trade = (datetime.utcnow() - entry_time).total_seconds() / 60
+                
+                # Options-specific exit conditions
+                should_exit = False
+                exit_reason = ""
+                
+                # 1. Profit target hit
+                if pnl_pct >= settings.risk.take_profit_percent:
+                    should_exit = True
+                    exit_reason = "PROFIT_TARGET"
+                    
+                # 2. Stop loss hit
+                elif pnl_pct <= -settings.risk.stop_loss_percent:
+                    should_exit = True
+                    exit_reason = "STOP_LOSS"
+                    
+                # 3. Theta decay protection
+                elif time_in_trade > settings.risk.theta_decay_exit_minutes:
+                    if pnl_pct < 10:  # Exit if not profitable after theta decay time
+                        should_exit = True
+                        exit_reason = "THETA_DECAY"
+                        
+                # 4. Quick profit taking for high confidence trades
+                elif confidence >= 9 and pnl_pct >= 25 and time_in_trade >= 2:
+                    should_exit = True
+                    exit_reason = "QUICK_PROFIT"
+                    
+                # 5. Trailing stop for profitable trades
+                elif pnl_pct >= settings.risk.trailing_stop.activate_at_profit_percent:
+                    trail_pct = settings.risk.trailing_stop.trail_by_percent / 100
+                    new_sl = live_price * (1 - trail_pct)
+                    
+                    current_sl = position.get('sl', entry_price * 0.6)
+                    if new_sl > current_sl:
                         self.order_manager.update_position_sl(position, new_sl)
-                        logger.info(f"Tight trailing SL for {symbol}: {new_sl:.2f}")
-                else:
-                    new_sl = min(sl, live_price + trail_amount)
-                    if new_sl < sl:
-                        self.order_manager.update_position_sl(position, new_sl)
-            elif pnl_pct > 0.5:  # Good profit - standard trailing
-                trail_amount = 0.6 * atr
-                if side == 'BUY':
-                    new_sl = max(sl, live_price - trail_amount)
-                    if new_sl > sl:
-                        self.order_manager.update_position_sl(position, new_sl)
-                else:
-                    new_sl = min(sl, live_price + trail_amount)
-                    if new_sl < sl:
-                        self.order_manager.update_position_sl(position, new_sl)
-            elif time_in_trade > 3 and pnl_pct < -0.2:  # Quick exit for losing trades
-                logger.info(f"Quick exit for underperforming {symbol}. P&L: {pnl_pct:.2f}%")
-                await self.order_manager.close_position(position, "QUICK_EXIT")
-            elif time_in_trade > 8:  # Time-based exit for scalping
-                logger.info(f"Time exit for {symbol} after {time_in_trade:.1f}min. P&L: {pnl_pct:.2f}%")
-                await self.order_manager.close_position(position, "TIME_EXIT")
+                        logger.info(f"Updated trailing SL for {symbol}: {new_sl:.2f}")
+                        
+                # 6. Time-based exit for scalping
+                elif time_in_trade > 10:  # Max 10 minutes for scalping
+                    should_exit = True
+                    exit_reason = "TIME_EXIT"
+                    
+                # 7. Market close protection
+                elif self.is_near_market_close():
+                    should_exit = True
+                    exit_reason = "MARKET_CLOSE"
+                
+                if should_exit:
+                    logger.info(f"Closing {symbol}: {exit_reason}, P&L: {pnl_pct:.2f}%, Time: {time_in_trade:.1f}min")
+                    await self.order_manager.close_position(position, exit_reason)
+                    
+            except Exception as e:
+                logger.error(f"Error managing position {position.get('symbol', 'unknown')}: {e}", exc_info=True)
+    
+    def is_near_market_close(self) -> bool:
+        """Check if we're near market close time."""
+        now = datetime.now().time()
+        square_off_time = datetime.strptime(settings.trading.square_off_time, '%H:%M').time()
+        return now >= square_off_time
 
     async def run(self):
-        """The main loop of the trading strategy."""
+        """Main options scalping strategy loop."""
         await self.warm_up()
+        logger.info("Options scalping strategy started")
+        
         while True:
-            if not self.is_running or self.risk_manager.is_trading_stopped:
-                await asyncio.sleep(2)  # Sleep to prevent busy-waiting when stopped
-                continue
-
-            now_time = datetime.now().time()
-            start_time = time.fromisoformat(settings.trading.hours['start'])
-            end_time = time.fromisoformat(settings.trading.hours['end'])
-
-            # Optimize for high-volume sessions
-            is_opening_session = time(9, 15) <= now_time <= time(10, 30)
-            is_closing_session = time(14, 30) <= now_time <= time(15, 15)
-            is_lunch_time = time(12, 0) <= now_time <= time(13, 0)
-            
-            if not (start_time <= now_time < end_time):
-                if self.active_trades:
-                    logger.info("Outside trading hours. Closing all open positions...")
-                await asyncio.sleep(30)
-                continue
-                
-            # Skip low-volume lunch period for scalping
-            if is_lunch_time:
-                await asyncio.sleep(10)
-                continue
-                
-            # Faster execution during high-volume sessions
-            sleep_time = 0.5 if (is_opening_session or is_closing_session) else 2
-
             try:
-                await self.update_and_check_candles()
-                await self.manage_active_trades()
-            except Exception as e:
-                logger.error(f"Error in strategy cycle: {e}", exc_info=True)
+                if not self.is_running or self.risk_manager.is_trading_stopped:
+                    await asyncio.sleep(2)
+                    continue
 
-            await asyncio.sleep(sleep_time)
+                now_time = datetime.now().time()
+                start_time = time.fromisoformat(settings.trading.hours['start'])
+                end_time = time.fromisoformat(settings.trading.hours['end'])
+
+                # Check trading hours
+                if not (start_time <= now_time < end_time):
+                    # Close all positions outside trading hours
+                    open_positions = self.order_manager.get_open_positions()
+                    if open_positions:
+                        logger.info("Outside trading hours. Closing all positions...")
+                        for position in open_positions:
+                            await self.order_manager.close_position(position, "MARKET_CLOSED")
+                    await asyncio.sleep(30)
+                    continue
+                
+                # Skip avoid sessions (lunch break)
+                if self.options_manager.should_avoid_trading():
+                    await asyncio.sleep(10)
+                    continue
+                
+                # Determine scan frequency based on market session
+                is_high_volume = self.options_manager.is_high_volume_session()
+                scan_interval = 1 if is_high_volume else 3  # Faster scanning in high volume
+                
+                # Main strategy operations
+                await self.scan_for_options_signals()
+                await self.manage_options_positions()
+                
+                # Risk management check
+                if not self.risk_manager.can_place_trade():
+                    logger.warning("Risk limits reached. Pausing new trades.")
+                    await asyncio.sleep(10)
+                    continue
+                
+                await asyncio.sleep(scan_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in options scalping cycle: {e}", exc_info=True)
+                await asyncio.sleep(5)
+
+# Alias for backward compatibility
+TradingStrategy = OptionsScalpingStrategy

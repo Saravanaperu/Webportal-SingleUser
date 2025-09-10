@@ -4,43 +4,79 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 
+class StrikeSelectionConfig(BaseModel):
+    atm_range: int
+    prefer_otm: bool
+    min_premium: float
+    max_premium: float
+
+class ExpiryPreferenceConfig(BaseModel):
+    max_days_to_expiry: int
+
 class StrategyConfig(BaseModel):
     trade_indices: list[str]
     instrument_types: list[str]
     timeframe: str
+    # Options-specific configs
+    strike_selection: StrikeSelectionConfig
+    expiry_preference: ExpiryPreferenceConfig
+    # Technical indicators
     ema_short: int
     ema_long: int
     supertrend_period: int
     supertrend_multiplier: float
     atr_period: int
-    # New scalping parameters
-    min_confirmations: int = 7
-    rsi_period: int = 7
+    min_confirmations: int = 8
+    rsi_period: int = 5
     bb_period: int = 20
     stoch_k: int = 5
     stoch_d: int = 3
-    volume_surge_threshold: float = 1.5
-    min_volatility: float = 0.3
-    max_volatility: float = 2.0
+    volume_surge_threshold: float = 2.0
+    min_volatility: float = 0.5
+    max_volatility: float = 3.0
+    # Options Greeks thresholds
+    min_delta: float = 0.3
+    max_delta: float = 0.8
+    max_theta: float = -0.5
+    min_gamma: float = 0.01
 
 class VolatilityAdjustmentConfig(BaseModel):
     high_vol_threshold_percent: float
     risk_reduction_factor: float
 
+class TrailingStopConfig(BaseModel):
+    activate_at_profit_percent: float
+    trail_by_percent: float
+
 class RiskConfig(BaseModel):
     risk_per_trade_percent: float
     max_daily_loss_percent: float
     consecutive_losses_stop: int
-    trailing_stop: dict
-    take_profit_atr: float
+    max_positions: int
+    # Options-specific risk
+    max_premium_risk_percent: float
+    theta_decay_exit_minutes: int
+    iv_spike_threshold: float
+    trailing_stop: TrailingStopConfig
+    take_profit_percent: float
+    stop_loss_percent: float
     volatility_adjustment: VolatilityAdjustmentConfig
+
+class TradingSessionConfig(BaseModel):
+    start: str
+    end: str
 
 class TradingConfig(BaseModel):
     hours: dict
+    high_volume_sessions: list[TradingSessionConfig]
+    avoid_sessions: list[TradingSessionConfig]
     paper_trading: bool
+    square_off_time: str
 
 class CooldownConfig(BaseModel):
     after_consecutive_losses_minutes: int
+    after_big_loss_minutes: int
+    big_loss_threshold_percent: float
 
 class Settings(BaseModel):
     # AngelOne Credentials
