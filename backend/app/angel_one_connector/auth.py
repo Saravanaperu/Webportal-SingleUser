@@ -13,6 +13,7 @@ class AngelAuth:
         self.totp_secret = totp_secret
         self.smart_api = SmartConnect(api_key=self.api_key)
         self.feed_token = None
+        self.is_authenticated = False
 
     def login(self) -> dict | None:
         """
@@ -26,6 +27,7 @@ class AngelAuth:
             if login_data.get("status") and login_data.get("data"):
                 data = login_data["data"]
                 self.feed_token = self.smart_api.getfeedToken()
+                self.is_authenticated = True
 
                 logger.info("AngelOne login successful.")
                 return {
@@ -39,9 +41,19 @@ class AngelAuth:
                 return None
 
         except Exception as e:
-            logger.error(f"An unexpected error occurred during login: {e}", exc_info=True)
+            # Sanitize error message to prevent credential exposure
+            sanitized_error = str(e).replace(self.password, "***").replace(self.totp_secret, "***")
+            logger.error(f"An unexpected error occurred during login: {sanitized_error}")
+            self.is_authenticated = False
             return None
 
-    def get_smart_api_instance(self) -> SmartConnect:
-        """Returns the authenticated SmartConnect instance."""
+    def get_smart_api_instance(self) -> SmartConnect | None:
+        """Returns the authenticated SmartConnect instance if login was successful."""
+        if not self.is_authenticated:
+            logger.warning("Attempted to get SmartConnect instance without authentication")
+            return None
         return self.smart_api
+    
+    def is_logged_in(self) -> bool:
+        """Check if user is currently authenticated."""
+        return self.is_authenticated

@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Portal</title>
+    <title>Options Scalping Portal</title>
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
 <body>
     <header>
-        <h1>Automated Trading Portal</h1>
+        <h1>Options Scalping Portal</h1>
         <div id="controls">
             <button id="strategy-toggle">Start Strategy</button>
             <button id="kill-switch">EMERGENCY STOP</button>
@@ -190,6 +190,385 @@
             async function fetchStrategyParams() {
                 try {
                     const response = await fetch('/api/strategy/parameters');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const params = await response.json();
+                    
+                    document.getElementById('param-ema-short').value = params.ema_short || 9;
+                    document.getElementById('param-ema-long').value = params.ema_long || 21;
+                    document.getElementById('param-atr-period').value = params.atr_period || 14;
+                    document.getElementById('param-st-period').value = params.supertrend_period || 10;
+                    document.getElementById('param-st-multiplier').value = params.supertrend_multiplier || 3.0;
+                } catch (err) {
+                    console.error('Failed to fetch strategy params:', err);
+                }
+            }
+
+            async function fetchTrades() {
+                try {
+                    const response = await fetch('/api/trades');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const trades = await response.json();
+                    
+                    tradesTableBody.innerHTML = '';
+                    if (trades && trades.length > 0) {
+                        trades.forEach(trade => {
+                            const row = document.createElement('tr');
+                            const pnlClass = trade.pnl >= 0 ? 'positive' : 'negative';
+                            const entryTime = new Date(trade.entry_time).toLocaleTimeString();
+                            row.innerHTML = `
+                                <td>${trade.symbol}</td>
+                                <td class="${trade.side.toLowerCase()}">${trade.side}</td>
+                                <td>${trade.qty}</td>
+                                <td>₹${Number(trade.entry_price).toFixed(2)}</td>
+                                <td>₹${Number(trade.exit_price).toFixed(2)}</td>
+                                <td class="${pnlClass}">₹${trade.pnl.toFixed(2)}</td>
+                                <td>${entryTime}</td>
+                            `;
+                            tradesTableBody.appendChild(row);
+                        });
+                    } else {
+                        tradesTableBody.innerHTML = '<tr><td colspan="7">No trades yet.</td></tr>';
+                    }
+                } catch (err) {
+                    console.error('Failed to fetch trades:', err);
+                    tradesTableBody.innerHTML = '<tr><td colspan="7">Error loading trades.</td></tr>';
+                }
+            }
+
+            async function fetchStats() {
+                try {
+                    const response = await fetch('/api/stats');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const stats = await response.json();
+                    
+                    balanceEl.textContent = `₹${stats.balance?.toFixed(2) || '--'}`;
+                    marginEl.textContent = `₹${stats.margin?.toFixed(2) || '--'}`;
+                    realizedPnlEl.textContent = `₹${stats.realized_pnl?.toFixed(2) || '0.00'}`;
+                    realizedPnlEl.className = stats.realized_pnl >= 0 ? 'positive' : 'negative';
+                    totalTradesEl.textContent = stats.total_trades || '0';
+                    winRateEl.textContent = `${stats.win_rate?.toFixed(1) || '0.0'}%`;
+                    avgWinEl.textContent = `₹${stats.avg_win?.toFixed(2) || '0.00'}`;
+                    avgLossEl.textContent = `₹${stats.avg_loss?.toFixed(2) || '0.00'}`;
+                    
+                    if (stats.is_strategy_running) {
+                        tradingStatusEl.textContent = 'RUNNING';
+                        tradingStatusEl.className = 'positive';
+                        strategyToggleBtn.textContent = 'Stop Strategy';
+                        isStrategyRunning = true;
+                    } else {
+                        tradingStatusEl.textContent = 'STOPPED';
+                        tradingStatusEl.className = 'negative';
+                        strategyToggleBtn.textContent = 'Start Options Scalping';
+                        isStrategyRunning = false;
+                    }
+                    
+                    dataFeedStatusEl.textContent = stats.data_feed_connected ? 'CONNECTED' : 'DISCONNECTED';
+                    dataFeedStatusEl.className = stats.data_feed_connected ? 'positive' : 'negative';
+                } catch (err) {
+                    console.error('Failed to fetch stats:', err);
+                }
+            }
+
+            function connectWebSocket() {
+                const ws = new WebSocket(`ws://${window.location.host}/ws`);
+                
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    dataFeedStatusEl.textContent = 'CONNECTED';
+                    dataFeedStatusEl.className = 'positive';
+                };
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'stats') {
+                        realizedPnlEl.textContent = `₹${data.realized_pnl?.toFixed(2) || '0.00'}`;
+                        realizedPnlEl.className = data.realized_pnl >= 0 ? 'positive' : 'negative';
+                    } else if (data.type === 'position_update') {
+                        fetchPositions();
+                    } else if (data.type === 'trade_completed') {
+                        fetchTrades();
+                    }
+                };
+                
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    dataFeedStatusEl.textContent = 'DISCONNECTED';
+                    dataFeedStatusEl.className = 'negative';
+                    setTimeout(connectWebSocket, 5000);
+                };
+            }
+
+            strategyToggleBtn.addEventListener('click', async () => {
+                try {
+                    const endpoint = isStrategyRunning ? '/api/strategy/stop' : '/api/strategy/start';
+                    const response = await fetch(endpoint, { method: 'POST' });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        fetchStats();
+                    } else {
+                        alert(result.message || 'Operation failed');
+                    }
+                } catch (err) {
+                    console.error('Strategy toggle failed:', err);
+                    alert('Failed to toggle strategy');
+                }
+            });
+
+            killSwitchBtn.addEventListener('click', async () => {
+                if (confirm('EMERGENCY STOP: This will immediately close all positions and stop trading. Continue?')) {
+                    try {
+                        const response = await fetch('/api/emergency-stop', { method: 'POST' });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        
+                        const result = await response.json();
+                        alert(result.message || 'Emergency stop executed');
+                        fetchStats();
+                        fetchPositions();
+                    } catch (err) {
+                        console.error('Emergency stop failed:', err);
+                        alert('Emergency stop failed');
+                    }
+                }
+            });
+
+            paramsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const formData = new FormData(paramsForm);
+                const params = Object.fromEntries(formData.entries());
+                
+                params.ema_short = parseInt(params.ema_short);
+                params.ema_long = parseInt(params.ema_long);
+                params.atr_period = parseInt(params.atr_period);
+                params.supertrend_period = parseInt(params.supertrend_period);
+                params.supertrend_multiplier = parseFloat(params.supertrend_multiplier);
+                
+                try {
+                    const response = await fetch('/api/strategy/parameters', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(params)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const result = await response.json();
+                    paramsStatusEl.textContent = result.success ? 'Parameters saved!' : 'Save failed';
+                    paramsStatusEl.className = result.success ? 'positive' : 'negative';
+                    
+                    setTimeout(() => {
+                        paramsStatusEl.textContent = '';
+                        paramsStatusEl.className = '';
+                    }, 3000);
+                } catch (err) {
+                    console.error('Failed to save parameters:', err);
+                    paramsStatusEl.textContent = 'Save failed';
+                    paramsStatusEl.className = 'negative';
+                }
+            });
+
+            fetchStats();
+            fetchPositions();
+            fetchTrades();
+            fetchStrategyParams();
+            connectWebSocket();
+            
+            setInterval(() => {
+                fetchStats();
+                fetchPositions();
+            }, 30000);
+            
+            setInterval(fetchTrades, 120000);
+        });
+    </script>
+    
+    <div id="backtest-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Options Backtesting</h2>
+            
+            <form id="backtest-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="backtest-start-date">Start Date</label>
+                        <input type="date" id="backtest-start-date" required>
+                    </div>
+                    <div>
+                        <label for="backtest-end-date">End Date</label>
+                        <input type="date" id="backtest-end-date" required>
+                    </div>
+                    <div>
+                        <label for="backtest-capital">Initial Capital</label>
+                        <input type="number" id="backtest-capital" value="100000" min="10000" required>
+                    </div>
+                    <div>
+                        <label for="backtest-index">Index</label>
+                        <select id="backtest-index" required>
+                            <option value="BANKNIFTY">BANKNIFTY</option>
+                            <option value="NIFTY">NIFTY</option>
+                            <option value="FINNIFTY">FINNIFTY</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" id="run-backtest-btn">Run Backtest</button>
+                    <span id="backtest-status"></span>
+                </div>
+            </form>
+            
+            <div id="backtest-results" style="display: none;">
+                <h3>Backtest Results</h3>
+                <div class="results-grid">
+                    <div class="result-item">
+                        <label>Total Return:</label>
+                        <span id="bt-total-return" class="result-value">--</span>
+                    </div>
+                    <div class="result-item">
+                        <label>Win Rate:</label>
+                        <span id="bt-win-rate" class="result-value">--</span>
+                    </div>
+                    <div class="result-item">
+                        <label>Total Trades:</label>
+                        <span id="bt-total-trades" class="result-value">--</span>
+                    </div>
+                    <div class="result-item">
+                        <label>Max Drawdown:</label>
+                        <span id="bt-max-drawdown" class="result-value">--</span>
+                    </div>
+                    <div class="result-item">
+                        <label>Sharpe Ratio:</label>
+                        <span id="bt-sharpe-ratio" class="result-value">--</span>
+                    </div>
+                    <div class="result-item">
+                        <label>Avg Trade Duration:</label>
+                        <span id="bt-avg-duration" class="result-value">--</span>
+                    </div>
+                </div>
+                
+                <div id="backtest-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const backtestModal = document.getElementById('backtest-modal');
+            const backtestForm = document.getElementById('backtest-form');
+            const backtestResults = document.getElementById('backtest-results');
+            const backtestStatus = document.getElementById('backtest-status');
+            const runBacktestBtn = document.getElementById('run-backtest-btn');
+            
+            const headerControls = document.getElementById('controls');
+            const backtestBtn = document.createElement('button');
+            backtestBtn.textContent = 'Backtest Strategy';
+            backtestBtn.id = 'backtest-btn';
+            headerControls.appendChild(backtestBtn);
+            
+            backtestBtn.addEventListener('click', () => {
+                backtestModal.style.display = 'block';
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - 30);
+                
+                document.getElementById('backtest-start-date').value = startDate.toISOString().split('T')[0];
+                document.getElementById('backtest-end-date').value = endDate.toISOString().split('T')[0];
+            });
+            
+            document.querySelector('.close').addEventListener('click', () => {
+                backtestModal.style.display = 'none';
+            });
+            
+            window.addEventListener('click', (e) => {
+                if (e.target === backtestModal) {
+                    backtestModal.style.display = 'none';
+                }
+            });
+            
+            backtestForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const formData = new FormData(backtestForm);
+                const backtestParams = {
+                    start_date: formData.get('backtest-start-date'),
+                    end_date: formData.get('backtest-end-date'),
+                    initial_capital: parseFloat(formData.get('backtest-capital')),
+                    index: formData.get('backtest-index')
+                };
+                
+                runBacktestBtn.disabled = true;
+                runBacktestBtn.textContent = 'Running...';
+                backtestStatus.textContent = 'Running backtest...';
+                backtestStatus.className = 'info';
+                backtestResults.style.display = 'none';
+                
+                try {
+                    const response = await fetch('/api/backtest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(backtestParams)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const results = await response.json();
+                    
+                    if (results.success) {
+                        displayBacktestResults(results.data);
+                        backtestStatus.textContent = 'Backtest completed!';
+                        backtestStatus.className = 'positive';
+                    } else {
+                        throw new Error(results.message || 'Backtest failed');
+                    }
+                } catch (err) {
+                    console.error('Backtest failed:', err);
+                    backtestStatus.textContent = `Backtest failed: ${err.message}`;
+                    backtestStatus.className = 'negative';
+                } finally {
+                    runBacktestBtn.disabled = false;
+                    runBacktestBtn.textContent = 'Run Backtest';
+                }
+            });
+            
+            function displayBacktestResults(data) {
+                document.getElementById('bt-total-return').textContent = `${data.total_return?.toFixed(2)}%`;
+                document.getElementById('bt-total-return').className = `result-value ${data.total_return >= 0 ? 'positive' : 'negative'}`;
+                
+                document.getElementById('bt-win-rate').textContent = `${data.win_rate?.toFixed(1)}%`;
+                document.getElementById('bt-total-trades').textContent = data.total_trades || 0;
+                document.getElementById('bt-max-drawdown').textContent = `${data.max_drawdown?.toFixed(2)}%`;
+                document.getElementById('bt-sharpe-ratio').textContent = data.sharpe_ratio?.toFixed(2) || '--';
+                document.getElementById('bt-avg-duration').textContent = `${data.avg_duration?.toFixed(1)} min` || '--';
+                
+                if (data.equity_curve && data.equity_curve.length > 0) {
+                    const backtestChartContainer = document.getElementById('backtest-chart');
+                    backtestChartContainer.innerHTML = '';
+                    
+                    const backtestChart = LightweightCharts.createChart(backtestChartContainer, {
+                        width: backtestChartContainer.clientWidth || 600,
+                        height: 300,
+                        layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                        grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+                        timeScale: { timeVisible: true }
+                    });
+                    
+                    const equitySeries = backtestChart.addAreaSeries({
+                        topColor: 'rgba(46, 204, 113, 0.56)',
+                        bottomColor: 'rgba(46, 204, 113, 0.04)',
+                        lineColor: 'rgba(46, 204, 113, 1)',
+                        lineWidth: 2
+                    });
+                    
+                    equitySeries.setData(data.equity_curve);
+                }
+                
+                backtestResults.style.display = 'block';
+            }
+        });
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
