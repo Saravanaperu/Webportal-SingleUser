@@ -103,32 +103,38 @@ async def startup_event():
         app.state.strategy_task = None # Explicitly set to None on startup
         logger.info("Core services initialized. Strategy is ready to be started by the user.")
 
+        # Get tokens for WebSocket subscription
+        tokens_to_subscribe = _get_websocket_tokens(instrument_manager)
+        app.state.tokens_to_subscribe = tokens_to_subscribe
+        logger.info(f"Identified {len(tokens_to_subscribe)} tokens for WebSocket subscription.")
+
         # Start the WebSocket connection in the background
         ws_client = connector.get_ws_client()
-        if ws_client:
-            if tokens_to_subscribe:
-                ws_client.set_instrument_tokens(tokens_to_subscribe)
-                app.state.ws_client = ws_client # Store client for shutdown
-                app.state.websocket_task = asyncio.create_task(ws_client.connect())
-                logger.info("WebSocket client connection task started.")
+        if ws_client and tokens_to_subscribe:
+            ws_client.set_instrument_tokens(tokens_to_subscribe)
+            app.state.ws_client = ws_client # Store client for shutdown
+            app.state.websocket_task = asyncio.create_task(ws_client.connect())
+            logger.info("WebSocket client connection task started.")
 
-                # Start the market data processing task
-                app.state.market_data_task = asyncio.create_task(
-                    process_market_data(ws_client.market_data_queue, ws_manager)
-                )
-                logger.info("Market data processing task started.")
-
-                # Start the order update processing task
-                app.state.order_update_task = asyncio.create_task(
-                    process_order_updates(app.state.order_manager, ws_client.order_update_queue, ws_manager)
-                )
-                logger.info("Order update processing task started.")
-
-            # Start the session refresh task
-            app.state.refresh_task = asyncio.create_task(
-                refresh_connection_periodically(connector, app.state)
+            # Start the market data processing task
+            app.state.market_data_task = asyncio.create_task(
+                process_market_data(ws_client.market_data_queue, ws_manager)
             )
-            logger.info("Session refresh task started.")
+            logger.info("Market data processing task started.")
+
+            # Start the order update processing task
+            app.state.order_update_task = asyncio.create_task(
+                process_order_updates(app.state.order_manager, ws_client.order_update_queue, ws_manager)
+            )
+            logger.info("Order update processing task started.")
+        elif not tokens_to_subscribe:
+            logger.warning("No tokens found to subscribe to WebSocket. Market data will not be received.")
+
+        # Start the session refresh task regardless
+        app.state.refresh_task = asyncio.create_task(
+            refresh_connection_periodically(connector, app.state)
+        )
+        logger.info("Session refresh task started.")
 
         logger.info("✅ Trading Portal Started Successfully.")
 
@@ -187,13 +193,16 @@ async def refresh_connection_periodically(connector: AngelOneConnector, app_stat
 
                 # 2. Start new tasks with the new ws_client instance
                 ws_client = connector.get_ws_client()
-                if ws_client:
+                tokens_to_subscribe = app_state.tokens_to_subscribe
+                if ws_client and tokens_to_subscribe:
                     ws_client.set_instrument_tokens(tokens_to_subscribe)
                     app_state.ws_client = ws_client
                     app_state.websocket_task = asyncio.create_task(ws_client.connect())
                     app_state.market_data_task = asyncio.create_task(process_market_data(ws_client.market_data_queue, app_state.ws_manager))
                     app_state.order_update_task = asyncio.create_task(process_order_updates(app_state.order_manager, ws_client.order_update_queue, app_state.ws_manager))
                     logger.info("WebSocket client and data processors restarted successfully.")
+                else:
+                    logger.warning("Could not restart WebSocket client after refresh: client or tokens missing.")
             else:
                 logger.error("Session refresh failed. Will retry in 1 hour.")
                 await asyncio.sleep(3600) # Sleep for an hour before retrying
