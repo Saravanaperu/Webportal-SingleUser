@@ -20,8 +20,4 @@ smartapi-python
 logzero
 websocket-client
 
-# Testing
-pytest
-pytest-asyncio
-
 # Notifications
