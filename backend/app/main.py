@@ -2,8 +2,7 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
 
 from .api.routes import router as api_router
 from .api.ws_manager import manager as ws_manager
@@ -19,17 +18,9 @@ from .services.market_data_manager import market_data_manager
 app = FastAPI(title="Automated Trading Portal")
 
 # --- Path Setup ---
-# Get the absolute path to the directory containing this file (main.py)
-APP_DIR = Path(__file__).resolve().parent
-STATIC_DIR = APP_DIR / "static"
-TEMPLATES_DIR = APP_DIR / "templates"
-
-
-# Mount static files for CSS, JS, etc.
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-# Setup Jinja2 templates for the dashboard
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+# Get the absolute path to the root of the project (one level up from 'backend')
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+FRONTEND_BUILD_DIR = PROJECT_ROOT / "frontend" / "build"
 
 def _get_websocket_tokens(current_instrument_manager):
     """Helper function to get the list of tokens for WebSocket subscription."""
@@ -273,12 +264,16 @@ async def shutdown_event():
         logger.info("Database connection closed.")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def read_dashboard(request: Request):
-    """Serves the main dashboard page."""
-    import html
-    safe_title = html.escape("Dashboard")
-    return templates.TemplateResponse("index.html", {"request": request, "title": safe_title})
-
 # Include the API router
 app.include_router(api_router, prefix="/api")
+
+# Serve the React App
+app.mount("/static", StaticFiles(directory=FRONTEND_BUILD_DIR / "static"), name="static")
+
+@app.get("/{catchall:path}", response_class=FileResponse)
+async def serve_react_app(request: Request, catchall: str):
+    """
+    Serve the React application.
+    This endpoint serves the index.html for any path not caught by other routes.
+    """
+    return FileResponse(FRONTEND_BUILD_DIR / "index.html")
