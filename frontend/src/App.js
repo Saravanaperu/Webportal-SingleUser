@@ -24,6 +24,7 @@ function App() {
 
   const fetchInitialData = async () => {
     try {
+      console.log("Fetching initial data...");
       const [statsRes, positionsRes, tradesRes, paramsRes, accountRes] = await Promise.all([
         axios.get('/api/stats'),
         axios.get('/api/positions'),
@@ -31,6 +32,14 @@ function App() {
         axios.get('/api/strategy/parameters'),
         axios.get('/api/account'),
       ]);
+
+      console.log("Initial data received:", {
+        stats: statsRes.data,
+        positions: positionsRes.data,
+        trades: tradesRes.data,
+        params: paramsRes.data,
+        account: accountRes.data,
+      });
 
       setStats(statsRes.data);
       setPositions(positionsRes.data);
@@ -58,6 +67,7 @@ function App() {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
+        console.log("WebSocket message received:", message);
         switch (message.type) {
           case 'ping':
             ws.send(JSON.stringify({ type: 'pong' }));
