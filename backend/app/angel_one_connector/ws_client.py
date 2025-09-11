@@ -1,5 +1,5 @@
 import asyncio
-import types
+import websocket
 from SmartApi import SmartWebSocket
 from ..core.logging import logger
 
@@ -67,34 +67,39 @@ class AngelWsClient:
     async def connect(self):
         """
         Connects to the WebSocket in a non-blocking way by running it in a separate thread.
-        This method also applies monkey-patches to the SmartWebSocket instance to fix
-        bugs in the smartapi-python library.
+        This method takes direct control of instantiating the WebSocketApp to inject
+        required headers and fix callback issues in the underlying library.
         """
         self._setup_callbacks()
-
-        # Monkey-patch 1: Update the WebSocket URL to the correct one.
-        self.sws.ROOT_URI = 'wss://smartapisocket.angelone.in/smart-stream'
-        logger.info(f"Monkey-patched WebSocket URL to: {self.sws.ROOT_URI}")
-
-        # Monkey-patch 2: Fix the on_close callback signature.
-        # The smartapi-python library has a bug where its __on_close method does not
-        # accept the close_status_code and close_msg arguments from the underlying
-        # websocket-client library, causing a TypeError.
-        def new_on_close(smart_ws_instance, ws, close_status_code, close_msg):
-            # Replicate the original library's logic
-            smart_ws_instance.HB_THREAD_FLAG = True
-            # Call the user-defined _on_close method with the correct signature
-            smart_ws_instance._on_close(ws, close_status_code, close_msg)
-
-        self.sws.__on_close = types.MethodType(new_on_close, self.sws)
-        logger.info("Monkey-patched __on_close method of SmartWebSocket instance.")
-
-
         logger.info("Attempting to connect to AngelOne WebSocket...")
+
         try:
-            # The connect() method of SmartWebSocket is blocking.
+            # The new AngelOne WebSocket API requires an Authorization header.
+            headers = {"Authorization": f"Bearer {self.auth_token}"}
+
+            # Define a correctly-behaving on_close handler to bypass the library's buggy one.
+            def on_close_handler(ws, close_status_code, close_msg):
+                # The library's internal __on_close sets this flag. Replicate it.
+                self.sws.HB_THREAD_FLAG = True
+                # Now call our own _on_close method with the correct signature.
+                self._on_close(ws, close_status_code, close_msg)
+
+            # Instantiate WebSocketApp directly, providing the correct URL, headers, and callbacks.
+            # We still use the library's wrappers for open, message, and error to retain
+            # its internal logic (like heartbeats and message parsing).
+            self.sws.ws = websocket.WebSocketApp(
+                'wss://smartapisocket.angelone.in/smart-stream',
+                header=headers,
+                on_open=self.sws.__on_open,
+                on_message=self.sws.__on_message,
+                on_error=self.sws.__on_error,
+                on_close=on_close_handler # Use our fixed handler
+            )
+
+            # The run_forever() method is blocking.
             # We run it in a separate thread to avoid blocking the main asyncio event loop.
-            await asyncio.to_thread(self.sws.connect)
+            await asyncio.to_thread(self.sws.ws.run_forever)
+
         except Exception as e:
             logger.error(f"Failed to connect to WebSocket: {e}", exc_info=True)
 
