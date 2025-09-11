@@ -112,3 +112,14 @@ class AngelOneConnector:
         if not self.rest_client:
             return None
         return await asyncio.to_thread(self.rest_client.get_candle_data, candle_params)
+    
+    async def get_quote(self, symbol: str) -> dict | None:
+        """Fetches live quote for a symbol."""
+        if not self.rest_client:
+            return None
+        try:
+            # Try to get live quote from broker
+            return await asyncio.to_thread(self.rest_client.get_quote, symbol)
+        except Exception as e:
+            logger.warning(f"Failed to get quote for {symbol}: {e}")
+            return None

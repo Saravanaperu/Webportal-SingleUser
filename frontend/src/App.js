@@ -6,11 +6,14 @@ import './App.css';
 import Header from './components/Header';
 import AccountOverview from './components/AccountOverview';
 import DailyStats from './components/DailyStats';
-import StrategyParams from './components/StrategyParams';
 import MarketChart from './components/MarketChart';
 import PnlChart from './components/PnlChart';
 import PositionsTable from './components/PositionsTable';
 import TradesTable from './components/TradesTable';
+import LogsPanel from './components/LogsPanel';
+import BrokerDetails from './components/BrokerDetails';
+import IndicesDisplay from './components/IndicesDisplay';
+import OptionsChain from './components/OptionsChain';
 
 function App() {
   const [stats, setStats] = useState(null);
@@ -20,52 +23,87 @@ function App() {
   const [strategyParams, setStrategyParams] = useState(null);
   const [isStrategyRunning, setIsStrategyRunning] = useState(false);
   const [dataFeedConnected, setDataFeedConnected] = useState(false);
-  const [marketData, setMarketData] = useState([]);
-
-  const fetchInitialData = async () => {
+  const [indices, setIndices] = useState({});
+  const fetchFrequentData = async () => {
     try {
-      console.log("Fetching initial data...");
-      const [statsRes, positionsRes, tradesRes, paramsRes, accountRes] = await Promise.all([
+      const [statsRes, positionsRes, tradesRes, indicesRes] = await Promise.all([
         axios.get('/api/stats'),
         axios.get('/api/positions'),
         axios.get('/api/trades'),
-        axios.get('/api/strategy/parameters'),
-        axios.get('/api/account'),
+        axios.get('/api/indices')
       ]);
 
       setStats(statsRes.data);
       setPositions(positionsRes.data);
       setTrades(tradesRes.data);
+      setIsStrategyRunning(statsRes.data.is_strategy_running || false);
+      setDataFeedConnected(statsRes.data.data_feed_connected || false);
+      
+      if (indicesRes.data && Object.keys(indicesRes.data).length > 0) {
+        setIndices(indicesRes.data);
+      }
+      
+    } catch (error) {
+      console.error("Failed to fetch frequent data:", error);
+    }
+  };
+
+  const fetchPeriodicData = async () => {
+    try {
+      const [paramsRes, accountRes] = await Promise.all([
+        axios.get('/api/strategy/parameters'),
+        axios.get('/api/account')
+      ]);
+
       setStrategyParams(paramsRes.data);
       setAccount(accountRes.data);
-      setIsStrategyRunning(statsRes.data.is_strategy_running);
-      setDataFeedConnected(statsRes.data.data_feed_connected);
+      
     } catch (error) {
-      console.error("Failed to fetch initial data:", error);
+      console.error("Failed to fetch periodic data:", error);
     }
   };
 
   useEffect(() => {
-    fetchInitialData();
+    fetchFrequentData();
+    fetchPeriodicData();
+    
+    // Frequent updates every 3 seconds for real-time data
+    const frequentInterval = setInterval(fetchFrequentData, 3000);
+    // Periodic updates every 15 seconds for account data
+    const periodicInterval = setInterval(fetchPeriodicData, 15000);
+    
+    return () => {
+      clearInterval(frequentInterval);
+      clearInterval(periodicInterval);
+    };
   }, []);
 
   return (
     <div className="App">
-      <Header isStrategyRunning={isStrategyRunning} />
+      <Header isStrategyRunning={isStrategyRunning} strategyParams={strategyParams} />
       <main>
         <section id="overview">
+          <BrokerDetails />
           <AccountOverview account={account} />
           <DailyStats stats={stats} dataFeedConnected={dataFeedConnected} isStrategyRunning={isStrategyRunning} />
         </section>
-        <StrategyParams params={strategyParams} />
-        <section id="charts">
-          <MarketChart data={marketData} />
-          <PnlChart trades={trades} />
+        
+        <section id="indices-options">
+          <IndicesDisplay indices={indices} />
+          <OptionsChain />
         </section>
+        
         <section id="positions-and-orders">
           <PositionsTable positions={positions} />
           <TradesTable trades={trades} />
         </section>
+        
+        <section id="charts">
+          <MarketChart data={[]} />
+          <PnlChart trades={trades} />
+        </section>
+        
+        <LogsPanel />
       </main>
     </div>
   );

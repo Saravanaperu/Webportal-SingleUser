@@ -124,3 +124,49 @@ class AngelRestClient:
         except Exception as e:
             logger.error(f"Error fetching candle data: {e}", exc_info=True)
             return None
+    
+    def get_quote(self, symbol: str) -> dict | None:
+        """Fetches live quote for a symbol using correct Angel One API."""
+        try:
+            token = self._get_symbol_token(symbol)
+            if not token:
+                logger.error(f"No token found for symbol: {symbol}")
+                return None
+            
+            # Use the correct ltpData method
+            quote_data = self.smart_api.ltpData("NSE", symbol, token)
+            
+            if quote_data and quote_data.get("status"):
+                data = quote_data.get("data", {})
+                if isinstance(data, dict):
+                    ltp = float(data.get("ltp", 0))
+                    close = float(data.get("close", ltp))
+                    change = ltp - close if close > 0 else 0
+                    change_percent = (change / close * 100) if close > 0 else 0
+                    
+                    logger.info(f"Quote for {symbol}: LTP={ltp}, Change={change}")
+                    return {
+                        "ltp": ltp,
+                        "change": change,
+                        "pChange": change_percent
+                    }
+                else:
+                    logger.error(f"Invalid data format for {symbol}: {data}")
+                    return None
+            else:
+                error_msg = quote_data.get('message', 'No response') if quote_data else 'No response'
+                logger.error(f"Failed to fetch quote for {symbol}: {error_msg}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error fetching quote for {symbol}: {e}", exc_info=True)
+            return None
+    
+    def _get_symbol_token(self, symbol: str) -> str:
+        """Get token for symbol"""
+        token_map = {
+            "NIFTY": "99926000",
+            "BANKNIFTY": "99926009", 
+            "FINNIFTY": "99926037"
+        }
+        return token_map.get(symbol, "")

@@ -54,10 +54,16 @@ async def startup_event():
     try:
         await database.connect()
         create_tables()
+        # Create market data tables
+        from sqlalchemy import create_engine
+        from .models.market_data import Base as MarketDataBase
+        import os
+        database_url = os.getenv("DATABASE_URL", "sqlite:///./data/trading_portal.db")
+        engine = create_engine(database_url)
+        MarketDataBase.metadata.create_all(bind=engine)
         logger.info("Database connected and tables verified.")
     except Exception as e:
         logger.critical(f"Fatal error connecting to the database: {e}", exc_info=True)
-        # Depending on the desired behavior, you might want to exit the app
         return
 
     # Initialize and connect to the broker
@@ -135,21 +141,28 @@ async def startup_event():
 
 async def process_market_data(queue: asyncio.Queue, manager: "WebSocketManager"):
     """
-    Continuously processes market data from the WebSocket queue and broadcasts it.
+    Continuously processes market data from the WebSocket queue and stores in database.
     """
+    from .services.tick_data_manager import tick_data_manager
+    
     while True:
         try:
             data = await queue.get()
-            # The tick data from the broker is often a list of dicts or a dict.
-            # We process it and then broadcast a standardized format.
+            # Process and store tick data in database
             market_data_manager.update_tick(data)
-
-            # Let's assume `update_tick` returns a standardized dict for the frontend.
-            # For this example, we'll just re-broadcast the raw data under a 'market' type.
-            # In a real app, you might want to standardize this.
+            
+            # Store tick data in database during market hours
+            if isinstance(data, dict) and 'symbol' in data:
+                await tick_data_manager.store_tick_data(data)
+            elif isinstance(data, list):
+                for tick in data:
+                    if isinstance(tick, dict) and 'symbol' in tick:
+                        await tick_data_manager.store_tick_data(tick)
+            
+            # Broadcast to frontend
             await manager.broadcast({"type": "market_data", "data": data})
-
             queue.task_done()
+            
         except asyncio.CancelledError:
             logger.info("Market data processing task cancelled.")
             break
