@@ -1,4 +1,6 @@
 import asyncio
+import json
+import six
 import websocket
 from SmartApi import SmartWebSocket
 from ..core.logging import logger
@@ -22,11 +24,30 @@ class AngelWsClient:
         self.instrument_tokens = ""
 
     def _setup_callbacks(self):
-        """Assigns the callback methods to the SmartWebSocket instance."""
+        """
+        Assigns the callback methods to the SmartWebSocket instance and monkey-patches
+        the subscribe method to use the correct token.
+        """
         self.sws._on_open = self._on_open
         self.sws._on_message = self._on_message
         self.sws._on_error = self._on_error
         self.sws._on_close = self._on_close
+
+        # Monkey-patch the subscribe method to use the JWT token instead of the feed token.
+        # The new API expects the JWT for subscription messages, not just for auth.
+        def new_subscribe(task, token_string):
+            request = {
+                "task": task,
+                "channel": token_string,
+                "token": self.auth_token,  # Use JWT token
+                "user": self.sws.client_code,
+                "acctid": self.sws.client_code
+            }
+            self.sws.ws.send(six.b(json.dumps(request)))
+            logger.info(f"Sent MODIFIED subscription request for task '{task}' with JWT token.")
+            return True
+
+        self.sws.subscribe = new_subscribe
 
     def _on_open(self, wsapp):
         logger.info("WebSocket connection opened.")
