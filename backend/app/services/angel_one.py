@@ -4,7 +4,7 @@ from ..core.config import settings
 from ..core.logging import logger
 from ..angel_one_connector.auth import AngelAuth
 from ..angel_one_connector.rest_client import AngelRestClient
-from ..angel_one_connector import ws_client
+from ..angel_one_connector.ws_client import AngelWsClient
 
 class AngelOneConnector:
     """
@@ -45,11 +45,7 @@ class AngelOneConnector:
 
         self.rest_client = AngelRestClient(smart_api_instance)
 
-        # Force a reload of the ws_client module to bypass any stale .pyc cache
-        importlib.reload(ws_client)
-        logger.info("Reloaded ws_client module to ensure fresh code.")
-
-        self.ws_client = ws_client.AngelWsClient(
+        self.ws_client = AngelWsClient(
             auth_token=self.jwt_token,
             api_key=self.api_key,
             client_id=self.client_id,
