@@ -87,12 +87,14 @@ class AngelWsClient:
             # Instantiate WebSocketApp directly, providing the correct URL, headers, and callbacks.
             # We still use the library's wrappers for open, message, and error to retain
             # its internal logic (like heartbeats and message parsing).
+            # We must use the name-mangled versions to access the private methods
+            # of the SmartWebSocket instance from outside its class.
             self.sws.ws = websocket.WebSocketApp(
                 'wss://smartapisocket.angelone.in/smart-stream',
                 header=headers,
-                on_open=self.sws.__on_open,
-                on_message=self.sws.__on_message,
-                on_error=self.sws.__on_error,
+                on_open=self.sws._SmartWebSocket__on_open,
+                on_message=self.sws._SmartWebSocket__on_message,
+                on_error=self.sws._SmartWebSocket__on_error,
                 on_close=on_close_handler # Use our fixed handler
             )
 
