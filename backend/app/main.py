@@ -259,8 +259,9 @@ async def shutdown_event():
     logger.info("Application shutdown sequence initiated...")
     tasks_to_cancel = ['strategy_task', 'websocket_task', 'market_data_task', 'order_update_task', 'refresh_task']
     for task_name in tasks_to_cancel:
-        if hasattr(app.state, task_name) and not getattr(app.state, task_name).done():
-            getattr(app.state, task_name).cancel()
+        task = getattr(app.state, task_name, None)
+        if task and not task.done():
+            task.cancel()
             logger.info(f"{task_name} cancelled.")
 
     if hasattr(app.state, 'ws_client') and hasattr(app.state.ws_client, 'disconnect'):
