@@ -83,7 +83,7 @@ class AngelOneConnector:
         """Returns the REST client instance."""
         return self.rest_client
 
-    def get_ws_client(self) -> ws_client.AngelWsClient | None:
+    def get_ws_client(self) -> AngelWsClient | None:
         """Returns the WebSocket client instance."""
         return self.ws_client
 

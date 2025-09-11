@@ -146,8 +146,7 @@ config_data = load_config()
 required_env_vars = ["API_KEY", "API_SECRET", "CLIENT_ID", "PASSWORD", "TOTP_SECRET"]
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
-    # raise ValueError(f"Missing required environment variables: {missing_vars}")
-    print(f"Warning: Missing required environment variables: {missing_vars}. Using dummy values.")
+    raise ValueError(f"Missing required environment variables: {missing_vars}")
 
 settings = Settings(
     api_key=os.getenv("API_KEY"),
