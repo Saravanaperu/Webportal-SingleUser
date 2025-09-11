@@ -2,6 +2,8 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 
 from .api.routes import router as api_router
 from .api.ws_manager import manager as ws_manager
@@ -20,11 +22,14 @@ app = FastAPI(title="Automated Trading Portal")
 # Get the absolute path to the directory containing this file (main.py)
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
+TEMPLATES_DIR = APP_DIR / "templates"
 
 
-# The new frontend will be served by a different mechanism,
-# so we no longer need to mount the static directory here.
-# app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Mount static files for CSS, JS, etc.
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Setup Jinja2 templates for the dashboard
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 def _get_websocket_tokens(current_instrument_manager):
     """Helper function to get the list of tokens for WebSocket subscription."""
@@ -267,6 +272,13 @@ async def shutdown_event():
         await database.disconnect()
         logger.info("Database connection closed.")
 
+
+@app.get("/", response_class=HTMLResponse)
+async def read_dashboard(request: Request):
+    """Serves the main dashboard page."""
+    import html
+    safe_title = html.escape("Dashboard")
+    return templates.TemplateResponse("index.html", {"request": request, "title": safe_title})
 
 # Include the API router
 app.include_router(api_router, prefix="/api")
