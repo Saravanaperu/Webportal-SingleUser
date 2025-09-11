@@ -33,14 +33,6 @@ function App() {
         axios.get('/api/account'),
       ]);
 
-      console.log("Initial data received:", {
-        stats: statsRes.data,
-        positions: positionsRes.data,
-        trades: tradesRes.data,
-        params: paramsRes.data,
-        account: accountRes.data,
-      });
-
       setStats(statsRes.data);
       setPositions(positionsRes.data);
       setTrades(tradesRes.data);
@@ -55,63 +47,6 @@ function App() {
 
   useEffect(() => {
     fetchInitialData();
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/data`);
-
-    ws.onopen = () => {
-      console.log("WebSocket connection established.");
-      setDataFeedConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log("WebSocket message received:", message);
-        switch (message.type) {
-          case 'ping':
-            ws.send(JSON.stringify({ type: 'pong' }));
-            break;
-          case 'stats_update':
-            setStats(message.data);
-            setIsStrategyRunning(message.data.is_strategy_running);
-            break;
-          case 'order_update':
-            // An order was filled/changed, refresh positions and trades
-            axios.get('/api/positions').then(res => setPositions(res.data));
-            axios.get('/api/trades').then(res => setTrades(res.data));
-            break;
-          case 'full_update':
-            setStats(message.data.stats);
-            setPositions(message.data.positions);
-            setTrades(message.data.trades);
-            setIsStrategyRunning(message.data.stats.is_strategy_running);
-            break;
-          case 'market_data':
-            setMarketData(prevData => [...prevData, message.data]);
-            break;
-          default:
-            break;
-        }
-      } catch (err) {
-        console.error('WebSocket message parse error:', err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-      setDataFeedConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket connection closed. Attempting to reconnect in 5 seconds...");
-      setDataFeedConnected(false);
-      // Optional: implement reconnection logic here
-    };
-
-    return () => {
-      ws.close();
-    };
   }, []);
 
   return (
