@@ -74,8 +74,13 @@ class AngelWsClient:
         logger.info("Attempting to connect to AngelOne WebSocket...")
 
         try:
-            # The new AngelOne WebSocket API requires an Authorization header.
-            headers = {"Authorization": f"Bearer {self.auth_token}"}
+            # The new AngelOne WebSocket API requires four headers for authentication.
+            headers = {
+                "Authorization": f"Bearer {self.auth_token}",
+                "x-api-key": self.api_key,
+                "x-client-code": self.client_id,
+                "x-feed-token": self.feed_token
+            }
 
             # Define a correctly-behaving on_close handler to bypass the library's buggy one.
             def on_close_handler(ws, close_status_code, close_msg):
