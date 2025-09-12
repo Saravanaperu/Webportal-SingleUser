@@ -1,83 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const OptionsChain = () => {
+const OptionsChain = React.memo(() => {
   const [optionsData, setOptionsData] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('BANKNIFTY');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Clear existing data when switching indices
-    setOptionsData([]);
     setLoading(true);
-    
-    // Fetch data for selected index
     const fetchOptionsChain = async () => {
       try {
-        console.log(`Fetching options chain for ${selectedIndex}...`);
         const response = await axios.get(`/api/options-chain/${selectedIndex}`);
-        console.log(`Received response for ${selectedIndex}:`, response.data);
-        
-        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        if (response.data && Array.isArray(response.data)) {
           setOptionsData(response.data);
-          console.log(`Set options data for ${selectedIndex}, length:`, response.data.length);
-        } else {
-          console.warn(`No options data received for ${selectedIndex}`, response.data);
-          setOptionsData([]);
         }
       } catch (error) {
-        console.error(`Failed to fetch options chain for ${selectedIndex}:`, error);
-        setOptionsData([]);
+        console.error(`Failed to fetch options chain:`, error);
       } finally {
         setLoading(false);
       }
     };
 
-    // Immediate fetch when index changes
     fetchOptionsChain();
-    
-    // Set up interval for periodic updates
-    const interval = setInterval(() => {
-      fetchOptionsChain();
-    }, 3000);
+    const interval = setInterval(fetchOptionsChain, 10000); // Reduced frequency
     return () => clearInterval(interval);
   }, [selectedIndex]);
 
   const isATM = (strike) => {
     if (optionsData.length === 0) return false;
     const middleIndex = Math.floor(optionsData.length / 2);
-    const atmStrike = optionsData[middleIndex]?.strike || 0;
-    // Different strike intervals for different indices
-    const tolerance = selectedIndex === 'BANKNIFTY' ? 100 : 50;
-    return Math.abs(strike - atmStrike) <= tolerance;
+    return optionsData[middleIndex]?.strike === strike;
   };
-
-  const hasData = optionsData.some(item => item.call?.ltp > 0 || item.put?.ltp > 0);
-
-  // Check if market is likely closed
-  const isMarketClosed = () => {
-    const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const currentTime = hours * 100 + minutes;
-    return currentTime < 915 || currentTime > 1530;
-  };
-
-  const marketClosed = isMarketClosed();
 
   return (
-    <div className="card" key={selectedIndex}>
+    <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3>
-          {selectedIndex} Options Chain {hasData ? (marketClosed ? '📊' : '🟢') : '🔄'}
-          {marketClosed && hasData && <span style={{ fontSize: '0.8rem', color: '#666' }}> (LTP)</span>}
-        </h3>
+        <h3>💹 Options Chain</h3>
         <select 
-          id="index-selector"
-          name="selectedIndex"
           value={selectedIndex} 
           onChange={(e) => setSelectedIndex(e.target.value)}
-          style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+          style={{ 
+            padding: '0.5rem 1rem', 
+            borderRadius: '8px', 
+            border: '1px solid #e2e8f0',
+            background: 'white',
+            fontWeight: '600'
+          }}
         >
           <option value="BANKNIFTY">BANKNIFTY</option>
           <option value="NIFTY">NIFTY</option>
@@ -85,86 +53,83 @@ const OptionsChain = () => {
         </select>
       </div>
       
-      <div className="options-chain">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '1rem', padding: '0.5rem', background: '#f8f9fa', fontWeight: '600' }}>
-          <div style={{ textAlign: 'center', color: '#28a745' }}>CALL</div>
-          <div style={{ textAlign: 'center' }}>STRIKE</div>
-          <div style={{ textAlign: 'center', color: '#dc3545' }}>PUT</div>
-        </div>
-        
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>
-            Loading {selectedIndex} options data...
+      {loading ? (
+        <div className="loading">Loading options data...</div>
+      ) : (
+        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: '1fr 80px 1fr', 
+            gap: '0.5rem',
+            padding: '0.5rem',
+            background: 'linear-gradient(135deg, #4299e1, #63b3ed)',
+            color: 'white',
+            fontWeight: '600',
+            fontSize: '0.9rem',
+            borderRadius: '8px 8px 0 0',
+            position: 'sticky',
+            top: 0,
+            zIndex: 1
+          }}>
+            <div style={{ textAlign: 'center' }}>CALL</div>
+            <div style={{ textAlign: 'center' }}>STRIKE</div>
+            <div style={{ textAlign: 'center' }}>PUT</div>
           </div>
-        ) : optionsData.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>
-            No options data available for {selectedIndex}
-          </div>
-        ) : (
-          optionsData.map((option) => (
+          
+          {optionsData.slice(0, 7).map((option) => (
             <div 
-              key={option.strike} 
-              className="option-strike"
+              key={option.strike}
               style={{
-                background: isATM(option.strike) ? 'rgba(255, 193, 7, 0.1)' : 'transparent',
-                border: isATM(option.strike) ? '2px solid #ffc107' : 'none'
+                display: 'grid',
+                gridTemplateColumns: '1fr 80px 1fr',
+                gap: '0.5rem',
+                padding: '0.5rem',
+                borderBottom: '1px solid #e2e8f0',
+                background: isATM(option.strike) ? 'rgba(255, 193, 7, 0.1)' : 'transparent'
               }}
             >
-              <div className="call-option">
-                <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>
-                    ₹{option.call?.ltp > 0 ? option.call.ltp.toFixed(2) : '--'}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                    Vol: {option.call?.volume?.toLocaleString() || 0}
-                  </div>
+              <div style={{ textAlign: 'center', color: '#38a169', fontWeight: '600' }}>
+                ₹{option.call?.ltp?.toFixed(2) || '--'}
+                <div style={{ fontSize: '0.75rem', color: '#718096' }}>
+                  {option.call?.volume ? `${(option.call.volume/1000).toFixed(0)}K` : '--'}
                 </div>
               </div>
               
-              <div className="strike-price">
+              <div style={{ 
+                textAlign: 'center', 
+                fontWeight: '700',
+                background: isATM(option.strike) ? '#ffc107' : '#f7fafc',
+                borderRadius: '4px',
+                padding: '0.25rem',
+                fontSize: '0.9rem'
+              }}>
                 {option.strike}
-                {isATM(option.strike) && <div style={{ fontSize: '0.7rem', color: '#ffc107' }}>ATM</div>}
+                {isATM(option.strike) && <div style={{ fontSize: '0.6rem', color: '#744210' }}>ATM</div>}
               </div>
               
-              <div className="put-option">
-                <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>
-                    ₹{option.put?.ltp > 0 ? option.put.ltp.toFixed(2) : '--'}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                    Vol: {option.put?.volume?.toLocaleString() || 0}
-                  </div>
+              <div style={{ textAlign: 'center', color: '#e53e3e', fontWeight: '600' }}>
+                ₹{option.put?.ltp?.toFixed(2) || '--'}
+                <div style={{ fontSize: '0.75rem', color: '#718096' }}>
+                  {option.put?.volume ? `${(option.put.volume/1000).toFixed(0)}K` : '--'}
                 </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
       
       <div style={{ 
         marginTop: '1rem', 
-        padding: '1rem', 
-        background: hasData ? (marketClosed ? '#e2e3e5' : '#d4edda') : '#fff3cd', 
-        borderRadius: '8px' 
+        padding: '0.75rem', 
+        background: 'linear-gradient(135deg, #f7fafc, #edf2f7)', 
+        borderRadius: '8px',
+        fontSize: '0.85rem',
+        color: '#4a5568'
       }}>
-        <h4 style={{ 
-          color: hasData ? (marketClosed ? '#383d41' : '#155724') : '#856404', 
-          marginBottom: '0.5rem' 
-        }}>
-          {hasData ? (marketClosed ? '📊 Market Closed - Last Traded Prices' : '✅ Live Options Data') : '🔄 Loading Data'}
-        </h4>
-        <div style={{ 
-          fontSize: '0.9rem', 
-          color: hasData ? (marketClosed ? '#383d41' : '#155724') : '#856404' 
-        }}>
-          • <strong>Focus:</strong> ATM options for high gamma scalping<br/>
-          • <strong>Target:</strong> 20-50% profit in 2-5 minutes<br/>
-          • <strong>Risk:</strong> 40% stop loss, theta protection<br/>
-          • <strong>Status:</strong> {hasData ? (marketClosed ? 'Showing last traded prices' : 'Live market data active') : 'Fetching from broker...'}
-        </div>
+        <strong>Scalping Focus:</strong> ATM options • <strong>Target:</strong> 20-50% • <strong>Risk:</strong> 40% SL
       </div>
     </div>
   );
-};
+});
 
 export default OptionsChain;

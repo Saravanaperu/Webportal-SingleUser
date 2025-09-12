@@ -1,72 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const BrokerStatus = () => {
-  const [brokerStatus, setBrokerStatus] = useState(null);
+const BrokerStatus = React.memo(() => {
+  const [brokerInfo, setBrokerInfo] = useState(null);
 
   useEffect(() => {
-    const fetchBrokerStatus = async () => {
+    const fetchBrokerInfo = async () => {
       try {
-        const response = await axios.get('/api/broker/status');
-        setBrokerStatus(response.data);
+        const response = await axios.get('/api/broker/details');
+        setBrokerInfo(prevInfo => ({ ...prevInfo, ...response.data }));
       } catch (error) {
-        setBrokerStatus({ connected: false, error: error.message });
+        setBrokerInfo(prevInfo => ({ ...prevInfo, error: error.message }));
       }
     };
 
-    fetchBrokerStatus();
-    const interval = setInterval(fetchBrokerStatus, 5000);
+    fetchBrokerInfo();
+    const interval = setInterval(fetchBrokerInfo, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  const getStatusColor = (connected) => connected ? '#28a745' : '#dc3545';
-  const getStatusText = (connected) => connected ? 'CONNECTED' : 'DISCONNECTED';
+  const isConnected = brokerInfo?.status === 'CONNECTED';
+  const isMarketFeedActive = brokerInfo?.market_feed_active || false;
+  const isWebSocketConnected = brokerInfo?.websocket_connected || false;
 
   return (
-    <div style={{ 
-      border: '1px solid #ccc', 
-      padding: '15px', 
-      borderRadius: '8px', 
-      backgroundColor: '#f8f9fa',
-      marginBottom: '20px'
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.75rem',
+      padding: '0.5rem 1rem',
+      background: 'rgba(255, 255, 255, 0.15)',
+      borderRadius: '8px',
+      fontSize: '0.8rem',
+      border: '1px solid rgba(255, 255, 255, 0.2)'
     }}>
-      <h3>Broker Connection Status</h3>
-      <div style={{ display: 'grid', gap: '10px', fontSize: '14px' }}>
-        <div>
-          <strong>API Connection:</strong> 
-          <span style={{ 
-            color: getStatusColor(brokerStatus?.connected), 
-            fontWeight: 'bold',
-            marginLeft: '10px'
-          }}>
-            {brokerStatus ? getStatusText(brokerStatus.connected) : 'CHECKING...'}
-          </span>
-        </div>
-        
-        {brokerStatus?.connected && (
-          <>
-            <div><strong>Session ID:</strong> {brokerStatus.session_id || 'N/A'}</div>
-            <div><strong>User ID:</strong> {brokerStatus.user_id || 'N/A'}</div>
-            <div><strong>Last Update:</strong> {brokerStatus.last_update || 'N/A'}</div>
-            <div><strong>Market Data:</strong> 
-              <span style={{ 
-                color: getStatusColor(brokerStatus.market_data_active),
-                marginLeft: '10px'
-              }}>
-                {getStatusText(brokerStatus.market_data_active)}
-              </span>
-            </div>
-          </>
-        )}
-        
-        {brokerStatus?.error && (
-          <div style={{ color: '#dc3545' }}>
-            <strong>Error:</strong> {brokerStatus.error}
-          </div>
-        )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
+        <span style={{ fontWeight: '600', fontSize: '0.75rem' }}>
+          Broker
+        </span>
+      </div>
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        <span className={`status-indicator ${isMarketFeedActive ? 'connected' : 'disconnected'}`}></span>
+        <span style={{ fontWeight: '600', fontSize: '0.75rem' }}>
+          Market
+        </span>
+      </div>
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        <span className={`status-indicator ${isWebSocketConnected ? 'connected' : 'disconnected'}`}></span>
+        <span style={{ fontWeight: '600', fontSize: '0.75rem' }}>
+          Data
+        </span>
       </div>
     </div>
   );
-};
+});
 
 export default BrokerStatus;

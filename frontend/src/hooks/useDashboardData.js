@@ -13,21 +13,23 @@ const useDashboardData = () => {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
       const response = await axios.get('/api/dashboard-data');
-      setData(response.data);
+      setData(prevData => ({
+        ...prevData,
+        ...response.data
+      }));
       setError(null);
+      if (loading) setLoading(false);
     } catch (err) {
       setError(err.message);
       console.error('Dashboard data fetch error:', err);
-    } finally {
-      setLoading(false);
+      if (loading) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Fallback polling every 5s
+    const interval = setInterval(fetchData, 10000); // Reduced frequency to 10s
     return () => clearInterval(interval);
   }, []);
 

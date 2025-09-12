@@ -309,6 +309,15 @@ async def get_broker_details(request: Request):
             
             if account_details:
                 add_log("info", f"Broker connection verified - Balance: ₹{account_details.get('balance', 0)}")
+                
+                # Check if WebSocket is connected and has subscribed tokens
+                ws_client = getattr(request.app.state, 'ws_client', None)
+                websocket_connected = bool(ws_client and hasattr(ws_client, 'ws') and ws_client.ws)
+                
+                # Check if tokens are subscribed (market feed active)
+                tokens_subscribed = bool(getattr(request.app.state, 'tokens_to_subscribe', []))
+                market_feed_active = websocket_connected and tokens_subscribed
+                
                 return {
                     "status": "CONNECTED",
                     "broker_name": "Angel One",
@@ -318,8 +327,8 @@ async def get_broker_details(request: Request):
                     "client_id": getattr(connector, 'client_id', 'N/A'),
                     "last_heartbeat": datetime.now().strftime("%H:%M:%S"),
                     "connection_time": getattr(connector, 'connection_time', 'N/A'),
-                    "market_feed_active": True,
-                    "websocket_connected": bool(getattr(request.app.state, 'ws_client', None)),
+                    "market_feed_active": market_feed_active,
+                    "websocket_connected": websocket_connected,
                     "account_balance": account_details.get('balance', 0)
                 }
             else:
@@ -366,12 +375,18 @@ async def get_broker_status(request: Request):
             account_details = await connector.get_account_details()
             
             if account_details:
+                # Check WebSocket and token subscription status
+                ws_client = getattr(request.app.state, 'ws_client', None)
+                websocket_connected = bool(ws_client and hasattr(ws_client, 'ws') and ws_client.ws)
+                tokens_subscribed = bool(getattr(request.app.state, 'tokens_to_subscribe', []))
+                
                 return {
                     "connected": True,
                     "session_id": getattr(connector, 'session_id', 'N/A'),
                     "user_id": getattr(connector, 'user_id', 'N/A'),
                     "last_update": datetime.now().strftime("%H:%M:%S"),
-                    "market_data_active": True,
+                    "market_data_active": websocket_connected and tokens_subscribed,
+                    "websocket_connected": websocket_connected,
                     "account_balance": account_details.get('balance', 0)
                 }
             else:
@@ -638,6 +653,8 @@ async def get_stats(request: Request):
                 # System Status
                 "is_strategy_running": strategy.is_running,
                 "data_feed_connected": is_feed_connected,
+                "websocket_connected": bool(getattr(request.app.state, 'ws_client', None)),
+                "market_feed_active": bool(getattr(request.app.state, 'tokens_to_subscribe', [])),
             }
             return stats
         else:
@@ -646,6 +663,7 @@ async def get_stats(request: Request):
                 "balance": 0, "margin": 0, "realized_pnl": 0,
                 "total_trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
                 "is_strategy_running": False, "data_feed_connected": False,
+                "websocket_connected": False, "market_feed_active": False,
                 "error": "Services not fully initialized."
             }
             
@@ -656,6 +674,7 @@ async def get_stats(request: Request):
             "balance": 0, "margin": 0, "realized_pnl": 0,
             "total_trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
             "is_strategy_running": False, "data_feed_connected": False,
+            "websocket_connected": False, "market_feed_active": False,
             "error": "Failed to fetch statistics."
         }
 

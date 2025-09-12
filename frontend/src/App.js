@@ -11,7 +11,7 @@ import PnlChart from './components/PnlChart';
 import PositionsTable from './components/PositionsTable';
 import TradesTable from './components/TradesTable';
 import LogsPanel from './components/LogsPanel';
-import BrokerDetails from './components/BrokerDetails';
+
 import IndicesDisplay from './components/IndicesDisplay';
 import OptionsChain from './components/OptionsChain';
 import { TradingProvider, useTradingContext } from './context/TradingContext';
@@ -58,7 +58,6 @@ const AppContent = () => {
       />
       <main>
         <section id="overview">
-          <BrokerDetails />
           <ErrorBoundary>
             <AccountOverview account={account} />
           </ErrorBoundary>

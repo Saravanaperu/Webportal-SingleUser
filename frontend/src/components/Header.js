@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import StrategyParams from './StrategyParams';
+import BrokerStatus from './BrokerStatus';
 
 const Header = ({ isStrategyRunning, strategyParams }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -10,8 +11,6 @@ const Header = ({ isStrategyRunning, strategyParams }) => {
     const hours = now.getHours();
     const minutes = now.getMinutes();
     const currentTime = hours * 100 + minutes;
-    
-    // Market hours: 9:15 AM to 3:30 PM (915 to 1530)
     return currentTime >= 915 && currentTime <= 1530;
   };
 
@@ -49,13 +48,30 @@ const Header = ({ isStrategyRunning, strategyParams }) => {
   };
 
   return (
-    <header>
-      <h1>Options Scalping Portal</h1>
-      <div id="controls">
-        <button id="strategy-toggle" onClick={handleStrategyToggle} disabled={isLoading}>
-          {isLoading ? 'Processing...' : (isStrategyRunning ? 'Stop Strategy' : 'Start Strategy')}
+    <header className="header">
+      <div>
+        <h1>⚡ Options Scalping Portal</h1>
+        <div className="connection-status">
+          <span className={`status-indicator ${isMarketHours() ? 'connected' : 'disconnected'}`}></span>
+          {isMarketHours() ? 'Market Open' : 'Market Closed'}
+        </div>
+      </div>
+      <div className="header-right">
+        <BrokerStatus />
+        <button 
+          className={`strategy-button ${isStrategyRunning ? 'stop' : 'start'}`}
+          onClick={handleStrategyToggle} 
+          disabled={isLoading}
+        >
+          {isLoading ? 'Processing...' : (isStrategyRunning ? '⏹️ Stop Strategy' : '▶️ Start Strategy')}
         </button>
-        <button id="kill-switch" onClick={handleKillSwitch}>EMERGENCY STOP</button>
+        <button 
+          className="strategy-button stop"
+          onClick={handleKillSwitch}
+          style={{ background: 'linear-gradient(45deg, #e53e3e, #c53030)' }}
+        >
+          🛑 Emergency Stop
+        </button>
         <StrategyParams params={strategyParams} />
       </div>
     </header>

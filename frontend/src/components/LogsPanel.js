@@ -7,12 +7,14 @@ const LogsPanel = () => {
   const logsEndRef = useRef(null);
 
   const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isExpanded) {
+      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [logs]);
+  }, [logs, isExpanded]);
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -25,67 +27,44 @@ const LogsPanel = () => {
     };
 
     fetchLogs();
-    const interval = setInterval(fetchLogs, 2000); // Fetch logs every 2 seconds
-
+    const interval = setInterval(fetchLogs, 5000); // Reduced frequency
     return () => clearInterval(interval);
   }, []);
 
-  const getLogStyle = (level) => {
-    switch (level?.toLowerCase()) {
-      case 'error':
-        return { color: '#dc3545' };
-      case 'warning':
-        return { color: '#ffc107' };
-      case 'info':
-        return { color: '#17a2b8' };
-      default:
-        return { color: '#333' };
-    }
-  };
-
   return (
-    <section id="logs-panel" style={{ margin: '20px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-        <h2>System Logs</h2>
-        <button 
-          onClick={() => setIsExpanded(!isExpanded)}
-          style={{ 
-            padding: '5px 10px',
-            backgroundColor: '#6c757d',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          {isExpanded ? 'Collapse' : 'Expand'}
-        </button>
-      </div>
-      
-      {isExpanded && (
-        <div style={{
-          height: '300px',
-          border: '1px solid #ccc',
-          backgroundColor: '#f8f9fa',
-          padding: '10px',
-          overflow: 'auto',
-          fontFamily: 'monospace',
-          fontSize: '12px'
+    <div className="card logs-panel">
+      <div 
+        className="logs-header" 
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <h3>🔍 System Logs ({logs.length})</h3>
+        <span style={{ 
+          fontSize: '1.2rem', 
+          transition: 'transform 0.3s ease', 
+          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' 
         }}>
-          {logs.length === 0 ? (
-            <p>No logs available</p>
-          ) : (
-            logs.map((log, index) => (
-              <div key={index} style={getLogStyle(log.level)}>
-                <span style={{ color: '#666' }}>[{log.timestamp}]</span> 
-                <span style={{ fontWeight: 'bold' }}> {log.level?.toUpperCase()}</span>: {log.message}
-              </div>
-            ))
-          )}
-          <div ref={logsEndRef} />
-        </div>
-      )}
-    </section>
+          ▼
+        </span>
+      </div>
+      <div className={`logs-content ${!isExpanded ? 'collapsed' : ''}`}>
+        {logs.length > 0 ? (
+          logs.slice(-50).reverse().map((log, index) => (
+            <div key={index} className="log-entry">
+              <span className="log-timestamp">{log.timestamp}</span>
+              <span className={`log-level ${log.level?.toLowerCase() || 'info'}`}>
+                {log.level?.toUpperCase() || 'INFO'}
+              </span>
+              <span>{log.message}</span>
+            </div>
+          ))
+        ) : (
+          <div style={{ color: '#718096', textAlign: 'center', padding: '1rem' }}>
+            No logs available
+          </div>
+        )}
+        <div ref={logsEndRef} />
+      </div>
+    </div>
   );
 };
 

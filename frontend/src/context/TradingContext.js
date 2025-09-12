@@ -27,9 +27,15 @@ export const TradingProvider = ({ children }) => {
 
   useEffect(() => {
     if (isConnected && wsData && Object.keys(wsData).length > 0) {
-      setCurrentData(wsData);
+      setCurrentData(prevData => ({
+        ...prevData,
+        ...wsData
+      }));
     } else if (!loading && fallbackData) {
-      setCurrentData(fallbackData);
+      setCurrentData(prevData => ({
+        ...prevData,
+        ...fallbackData
+      }));
     }
   }, [wsData, fallbackData, isConnected, loading]);
 
