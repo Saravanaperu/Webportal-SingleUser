@@ -3,7 +3,22 @@ import React from 'react';
 const AccountOverview = React.memo(({ account }) => {
   return (
     <div className="card">
-      <h3>💰 Account Overview</h3>
+      <h3>
+        💰 Account Overview
+        {account?.paper_mode && (
+          <span style={{ 
+            fontSize: '0.7rem', 
+            background: '#ffc107', 
+            color: '#744210', 
+            padding: '0.2rem 0.5rem', 
+            borderRadius: '4px', 
+            marginLeft: '0.5rem',
+            fontWeight: '600'
+          }}>
+            PAPER
+          </span>
+        )}
+      </h3>
       <div style={{ display: 'grid', gap: '0.75rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Balance:</span>

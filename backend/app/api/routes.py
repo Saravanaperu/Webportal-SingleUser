@@ -54,7 +54,37 @@ def add_log(level, message):
 add_log("info", "Trading Portal API initialized")
 add_log("info", "Waiting for broker connection...")
 
+# === Paper Trading Endpoints ===
 
+@router.post("/paper-trading/toggle")
+async def toggle_paper_trading(payload: dict = Body(...)):
+    """Toggle paper trading mode on/off"""
+    from ..services.paper_trading import paper_trading_manager
+    
+    action = payload.get("action")
+    if action == "enable":
+        paper_trading_manager.enable_paper_trading()
+        return {"status": "Paper trading enabled", "mode": "paper"}
+    elif action == "disable":
+        paper_trading_manager.disable_paper_trading()
+        return {"status": "Paper trading disabled", "mode": "live"}
+    elif action == "reset":
+        paper_trading_manager.reset_paper_account()
+        return {"status": "Paper account reset"}
+    else:
+        return {"error": "Invalid action"}
+
+@router.get("/paper-trading/status")
+async def get_paper_trading_status():
+    """Get paper trading status and stats"""
+    from ..services.paper_trading import paper_trading_manager
+    
+    return {
+        "is_paper_mode": paper_trading_manager.is_paper_mode,
+        "stats": paper_trading_manager.get_paper_stats(),
+        "positions": paper_trading_manager.get_paper_positions(),
+        "trades": paper_trading_manager.get_paper_trades()[-10:]  # Last 10 trades
+    }
 
 # === REST Endpoints ===
 
@@ -402,6 +432,17 @@ async def get_broker_status(request: Request):
 @router.get("/account")
 async def get_account(request: Request):
     """Returns real-time account details with caching."""
+    # Check if paper trading mode
+    from ..services.paper_trading import paper_trading_manager
+    if paper_trading_manager.is_paper_mode:
+        stats = paper_trading_manager.get_paper_stats()
+        return {
+            "balance": stats['current_balance'],
+            "margin": 0,
+            "available": stats['current_balance'],
+            "paper_mode": True
+        }
+    
     async def fetch_account():
         if not (hasattr(request.app.state, 'order_manager') and 
                 request.app.state.order_manager and 

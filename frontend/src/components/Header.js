@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import StrategyParams from './StrategyParams';
 import BrokerStatus from './BrokerStatus';
+import PaperTradingToggle from './PaperTradingToggle';
 
 const Header = ({ isStrategyRunning, strategyParams }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -58,6 +59,7 @@ const Header = ({ isStrategyRunning, strategyParams }) => {
       </div>
       <div className="header-right">
         <BrokerStatus />
+        <PaperTradingToggle />
         <button 
           className={`strategy-button ${isStrategyRunning ? 'stop' : 'start'}`}
           onClick={handleStrategyToggle} 
