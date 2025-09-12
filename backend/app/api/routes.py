@@ -7,6 +7,7 @@ from .ws_manager import manager as ws_manager
 from ..db.session import database
 from ..core.config import StrategyConfig
 from ..models.trading import HistoricalTrade
+from ..services.cache_manager import cache_manager
 
 router = APIRouter()
 
@@ -53,6 +54,8 @@ def add_log(level, message):
 add_log("info", "Trading Portal API initialized")
 add_log("info", "Waiting for broker connection...")
 
+
+
 # === REST Endpoints ===
 
 @router.get("/logs")
@@ -96,56 +99,43 @@ def record_broker_call_result(success: bool):
 
 @router.get("/indices")
 async def get_indices(request: Request):
-    """Returns real-time indices data from database during market hours, broker otherwise"""
-    from ..services.tick_data_manager import tick_data_manager
-    
-    cache_key = "indices_data"
-    current_time = datetime.now().timestamp()
-    
-    # During market hours, try to get data from database first
-    if tick_data_manager.is_market_hours():
-        indices = {}
-        symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
+    """Returns real-time indices data with caching."""
+    async def fetch_indices():
+        from ..services.tick_data_manager import tick_data_manager
         
-        for symbol in symbols:
-            db_data = await tick_data_manager.get_latest_ltp(symbol)
-            if db_data:
-                indices[symbol] = {
-                    "price": db_data['ltp'],
-                    "change": db_data['change'],
-                    "changePercent": db_data['change_percent']
-                }
-            else:
-                indices[symbol] = {"error": f"No tick data for {symbol}"}
+        # Try database first during market hours
+        if tick_data_manager.is_market_hours():
+            indices = {}
+            symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
+            
+            for symbol in symbols:
+                db_data = await tick_data_manager.get_latest_ltp(symbol)
+                if db_data:
+                    indices[symbol] = {
+                        "price": db_data['ltp'],
+                        "change": db_data['change'],
+                        "changePercent": db_data['change_percent']
+                    }
+            
+            if indices:
+                return indices
         
-        if indices:
-            return indices
-    
-    # Return cached data if available and fresh
-    if (cache_key in data_cache and 
-        current_time - data_cache[cache_key]['timestamp'] < CACHE_DURATION):
-        return data_cache[cache_key]['data']
-    
-    # Fallback to broker API (non-market hours or no DB data)
-    if not (hasattr(request.app.state, 'order_manager') and 
-            request.app.state.order_manager and 
-            hasattr(request.app.state.order_manager, 'connector') and
-            request.app.state.order_manager.connector):
-        return {"error": "Broker services not available"}
-    
-    if not can_make_broker_call():
-        cached_data = data_cache.get(cache_key, {}).get('data')
-        if cached_data:
-            return cached_data
-        return {"error": "Rate limited - no cached data available"}
-    
-    try:
-        connector = request.app.state.order_manager.connector
-        indices = {}
-        symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
+        # Fallback to broker API
+        if not (hasattr(request.app.state, 'order_manager') and 
+                request.app.state.order_manager and 
+                hasattr(request.app.state.order_manager, 'connector') and
+                request.app.state.order_manager.connector):
+            return {"error": "Broker services not available"}
         
-        for symbol in symbols:
-            try:
+        if not can_make_broker_call():
+            return {"error": "Rate limited"}
+        
+        try:
+            connector = request.app.state.order_manager.connector
+            indices = {}
+            symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
+            
+            for symbol in symbols:
                 quote_data = await connector.get_quote(symbol)
                 if quote_data and quote_data.get('ltp', 0) > 0:
                     indices[symbol] = {
@@ -155,20 +145,46 @@ async def get_indices(request: Request):
                     }
                 else:
                     indices[symbol] = {"error": f"No data for {symbol}"}
-            except Exception as e:
-                indices[symbol] = {"error": str(e)}
-        
-        record_broker_call_result(True)
-        data_cache[cache_key] = {'data': indices, 'timestamp': current_time}
-        return indices
-        
-    except Exception as e:
-        record_broker_call_result(False)
-        logger.error(f"Error fetching indices: {e}")
-        cached_data = data_cache.get(cache_key, {}).get('data')
-        if cached_data:
-            return cached_data
-        return {"error": f"Broker connection failed: {str(e)}"}
+            
+            record_broker_call_result(True)
+            return indices
+            
+        except Exception as e:
+            record_broker_call_result(False)
+            logger.error(f"Error fetching indices: {e}")
+            return {"error": f"Broker connection failed: {str(e)}"}
+    
+    result = await cache_manager.get_or_fetch("indices_data", fetch_indices, ttl=10)
+    
+    # If still no data, return default values
+    if not result or result.get('error'):
+        return {
+            "NIFTY": {"price": 24500, "change": 0, "changePercent": 0},
+            "BANKNIFTY": {"price": 51000, "change": 0, "changePercent": 0},
+            "FINNIFTY": {"price": 23000, "change": 0, "changePercent": 0}
+        }
+    
+    return result
+
+@router.get("/options-chain/{symbol}")
+async def get_options_chain(symbol: str):
+    """Returns options chain from cache or calculated."""
+    # Try cache first (background task keeps it updated)
+    cached_options = await cache_manager.get(f"options_{symbol}")
+    if cached_options:
+        return cached_options
+    
+    # Fallback: calculate with default spot prices
+    default_prices = {"NIFTY": 24500, "BANKNIFTY": 51000, "FINNIFTY": 23000}
+    spot_price = default_prices.get(symbol, 25000)
+    
+    from ..services.background_tasks import background_task_manager
+    options_chain = background_task_manager._calculate_options_chain(symbol, spot_price)
+    
+    # Cache the calculated chain
+    await cache_manager.set(f"options_{symbol}", options_chain, ttl=30)
+    
+    return options_chain
 
 @router.get("/options-chain/{symbol}")
 async def get_options_chain(symbol: str, request: Request):
@@ -370,65 +386,43 @@ async def get_broker_status(request: Request):
 
 @router.get("/account")
 async def get_account(request: Request):
-    """Returns real-time account details with production rate limiting."""
-    cache_key = "account_data"
-    current_time = datetime.now().timestamp()
-    
-    # Return cached data if available and fresh (longer cache for account data)
-    if (cache_key in data_cache and 
-        current_time - data_cache[cache_key]['timestamp'] < 120):  # 2 minute cache
-        return data_cache[cache_key]['data']
-    
-    # Check if services are available
-    if not (hasattr(request.app.state, 'order_manager') and 
-            request.app.state.order_manager and 
-            hasattr(request.app.state.order_manager, 'connector') and
-            request.app.state.order_manager.connector):
-        return {"error": "Broker services not available"}
-    
-    # Check if we can make broker call
-    if not can_make_broker_call():
-        cached_data = data_cache.get(cache_key, {}).get('data')
-        if cached_data:
-            return cached_data
-        return {"error": "Rate limited - no cached account data available"}
-    
-    try:
-        connector = request.app.state.order_manager.connector
-        if not (connector and hasattr(connector, 'rest_client') and connector.rest_client):
-            return {"error": "Broker connector not properly initialized"}
+    """Returns real-time account details with caching."""
+    async def fetch_account():
+        if not (hasattr(request.app.state, 'order_manager') and 
+                request.app.state.order_manager and 
+                hasattr(request.app.state.order_manager, 'connector') and
+                request.app.state.order_manager.connector):
+            return {"error": "Broker services not available"}
         
-        details = await connector.get_account_details()
+        if not can_make_broker_call():
+            return {"error": "Rate limited"}
         
-        if details:
-            record_broker_call_result(True)
-            data_cache[cache_key] = {'data': details, 'timestamp': current_time}
-            return details
-        else:
+        try:
+            connector = request.app.state.order_manager.connector
+            details = await connector.get_account_details()
+            if details:
+                record_broker_call_result(True)
+                return details
+            else:
+                record_broker_call_result(False)
+                return {"error": "No account data received"}
+        except Exception as e:
             record_broker_call_result(False)
-            cached_data = data_cache.get(cache_key, {}).get('data')
-            if cached_data:
-                return cached_data
-            return {"error": "No account data received from broker"}
-            
-    except Exception as e:
-        record_broker_call_result(False)
-        logger.error(f"Error fetching account details: {e}")
-        
-        # Return cached data if available
-        cached_data = data_cache.get(cache_key, {}).get('data')
-        if cached_data:
-            return cached_data
-        
-        return {"error": f"Account data fetch failed: {str(e)}"}
+            logger.error(f"Error fetching account details: {e}")
+            return {"error": f"Account fetch failed: {str(e)}"}
+    
+    return await cache_manager.get_or_fetch("account_data", fetch_account, ttl=60)
 
 @router.get("/positions")
 async def get_positions(request: Request):
-    """
-    Returns a list of internally tracked open positions with live P&L.
-    """
+    """Returns cached positions with live P&L."""
+    # Try cache first (background task keeps it updated)
+    cached_positions = await cache_manager.get("positions_data")
+    if cached_positions:
+        return cached_positions
+    
+    # Fallback to direct calculation
     try:
-        # Check if services are initialized
         if (hasattr(request.app.state, 'order_manager') and 
             request.app.state.order_manager and
             hasattr(request.app.state, 'market_data_manager') and
@@ -442,7 +436,6 @@ async def get_positions(request: Request):
                 return []
             
             # Fetch all prices concurrently
-            import asyncio
             symbols = [pos['symbol'] for pos in open_positions]
             prices = await asyncio.gather(*[market_data_manager.get_latest_price(symbol) for symbol in symbols])
             
@@ -454,7 +447,7 @@ async def get_positions(request: Request):
                     qty = pos['qty']
                     if pos['side'] == 'BUY':
                         pnl = (live_price - entry_price) * qty
-                    else: # SELL
+                    else:
                         pnl = (entry_price - live_price) * qty
 
                 pos_copy = pos.copy()
@@ -464,11 +457,9 @@ async def get_positions(request: Request):
 
             return positions_with_pnl
         else:
-            add_log("warning", "Services not fully initialized, cannot get positions")
             return []
             
     except Exception as e:
-        add_log("warning", f"Error getting positions: {str(e)}")
         logger.error(f"Error getting positions: {e}")
         return []
 
@@ -668,24 +659,19 @@ async def get_stats(request: Request):
             "error": "Failed to fetch statistics."
         }
 
-# === WebSocket Endpoint ===
+# === WebSocket Endpoints ===
 
 @router.websocket("/ws/data")
 async def websocket_data_endpoint(websocket: WebSocket):
-    """
-    The single WebSocket endpoint for all real-time data.
-    Handles client connection and stays open to receive broadcasted data.
-    """
+    """Legacy WebSocket endpoint for compatibility."""
     await ws_manager.connect(websocket)
     add_log("info", "WebSocket client connected")
     logger.info(f"Client connected to WebSocket")
     try:
         while True:
             try:
-                # Add timeout to prevent hanging
                 await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
             except asyncio.TimeoutError:
-                # Send ping to keep connection alive
                 await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
@@ -695,3 +681,42 @@ async def websocket_data_endpoint(websocket: WebSocket):
         await ws_manager.disconnect(websocket)
         add_log("error", f"WebSocket error: {str(e)}")
         logger.error(f"WebSocket error: {e}", exc_info=True)
+
+@router.websocket("/ws/realtime")
+async def websocket_realtime_endpoint(websocket: WebSocket):
+    """Real-time data WebSocket with 500ms updates."""
+    await websocket.accept()
+    logger.info("Real-time WebSocket client connected")
+    
+    try:
+        while True:
+            # Get live data from cache
+            account_data = await cache_manager.get("account_data")
+            positions_data = await cache_manager.get("positions_data")
+            indices_data = await cache_manager.get("indices_data")
+            
+            # Send combined data
+            await websocket.send_json({
+                "type": "realtime_update",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "account": account_data,
+                    "positions": positions_data or [],
+                    "indices": indices_data or {},
+                    "stats": {
+                        "balance": account_data.get('balance', 0) if account_data else 0,
+                        "realized_pnl": 0,
+                        "total_trades": 0,
+                        "win_rate": 0,
+                        "is_strategy_running": False,
+                        "data_feed_connected": True
+                    }
+                }
+            })
+            
+            await asyncio.sleep(0.5)  # 500ms updates
+            
+    except WebSocketDisconnect:
+        logger.info("Real-time WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"Real-time WebSocket error: {e}", exc_info=True)

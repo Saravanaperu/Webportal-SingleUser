@@ -1,6 +1,6 @@
 import React from 'react';
 
-const AccountOverview = ({ account }) => {
+const AccountOverview = React.memo(({ account }) => {
   const getConnectionStatus = () => {
     if (account?.error) return { text: 'DISCONNECTED', color: '#dc3545' };
     if (account?.balance !== undefined) return { text: 'CONNECTED', color: '#28a745' };
@@ -26,7 +26,7 @@ const AccountOverview = ({ account }) => {
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Margin:</span>
+          <span>Margin Used:</span>
           <span style={{ fontWeight: '600', fontSize: '1.1rem' }}>
             {account ? `₹${account.margin?.toLocaleString('en-IN', {minimumFractionDigits: 2})}` : '--'}
           </span>
@@ -34,7 +34,7 @@ const AccountOverview = ({ account }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Available:</span>
           <span style={{ fontWeight: '600', fontSize: '1.1rem', color: '#28a745' }}>
-            {account ? `₹${((account.balance || 0) - (account.margin || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}` : '--'}
+            {account ? `₹${(account.available || ((account.balance || 0) - (account.margin || 0))).toLocaleString('en-IN', {minimumFractionDigits: 2})}` : '--'}
           </span>
         </div>
         {account?.error && (
@@ -43,6 +43,6 @@ const AccountOverview = ({ account }) => {
       </div>
     </div>
   );
-};
+});
 
 export default AccountOverview;

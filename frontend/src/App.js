@@ -14,98 +14,97 @@ import LogsPanel from './components/LogsPanel';
 import BrokerDetails from './components/BrokerDetails';
 import IndicesDisplay from './components/IndicesDisplay';
 import OptionsChain from './components/OptionsChain';
+import { TradingProvider, useTradingContext } from './context/TradingContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
-function App() {
-  const [stats, setStats] = useState(null);
-  const [account, setAccount] = useState(null);
-  const [positions, setPositions] = useState([]);
+const AppContent = () => {
+  const { account, positions, indices, stats, isConnected, loading } = useTradingContext();
   const [trades, setTrades] = useState([]);
   const [strategyParams, setStrategyParams] = useState(null);
-  const [isStrategyRunning, setIsStrategyRunning] = useState(false);
-  const [dataFeedConnected, setDataFeedConnected] = useState(false);
-  const [indices, setIndices] = useState({});
-  const fetchFrequentData = async () => {
-    try {
-      const [statsRes, positionsRes, tradesRes, indicesRes] = await Promise.all([
-        axios.get('/api/stats'),
-        axios.get('/api/positions'),
-        axios.get('/api/trades'),
-        axios.get('/api/indices')
-      ]);
 
-      setStats(statsRes.data);
-      setPositions(positionsRes.data);
-      setTrades(tradesRes.data);
-      setIsStrategyRunning(statsRes.data.is_strategy_running || false);
-      setDataFeedConnected(statsRes.data.data_feed_connected || false);
-      
-      if (indicesRes.data && Object.keys(indicesRes.data).length > 0) {
-        setIndices(indicesRes.data);
-      }
-      
-    } catch (error) {
-      console.error("Failed to fetch frequent data:", error);
-    }
-  };
-
-  const fetchPeriodicData = async () => {
-    try {
-      const [paramsRes, accountRes] = await Promise.all([
-        axios.get('/api/strategy/parameters'),
-        axios.get('/api/account')
-      ]);
-
-      setStrategyParams(paramsRes.data);
-      setAccount(accountRes.data);
-      
-    } catch (error) {
-      console.error("Failed to fetch periodic data:", error);
-    }
-  };
-
+  // Fetch less frequent data
   useEffect(() => {
-    fetchFrequentData();
-    fetchPeriodicData();
-    
-    // Frequent updates every 3 seconds for real-time data
-    const frequentInterval = setInterval(fetchFrequentData, 3000);
-    // Periodic updates every 15 seconds for account data
-    const periodicInterval = setInterval(fetchPeriodicData, 15000);
-    
-    return () => {
-      clearInterval(frequentInterval);
-      clearInterval(periodicInterval);
+    const fetchStaticData = async () => {
+      try {
+        const [tradesRes, paramsRes] = await Promise.all([
+          axios.get('/api/trades'),
+          axios.get('/api/strategy/parameters')
+        ]);
+        setTrades(tradesRes.data);
+        setStrategyParams(paramsRes.data);
+      } catch (error) {
+        console.error('Failed to fetch static data:', error);
+      }
     };
+
+    fetchStaticData();
+    const interval = setInterval(fetchStaticData, 30000); // Every 30s
+    return () => clearInterval(interval);
   }, []);
+
+  if (loading) {
+    return (
+      <div className="App" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Loading trading data...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="App">
-      <Header isStrategyRunning={isStrategyRunning} strategyParams={strategyParams} />
+      <Header 
+        isStrategyRunning={stats?.is_strategy_running || false} 
+        strategyParams={strategyParams} 
+      />
       <main>
         <section id="overview">
           <BrokerDetails />
-          <AccountOverview account={account} />
-          <DailyStats stats={stats} dataFeedConnected={dataFeedConnected} isStrategyRunning={isStrategyRunning} />
+          <ErrorBoundary>
+            <AccountOverview account={account} />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <DailyStats 
+              stats={stats} 
+              dataFeedConnected={stats?.data_feed_connected || isConnected} 
+              isStrategyRunning={stats?.is_strategy_running || false} 
+            />
+          </ErrorBoundary>
         </section>
         
         <section id="indices-options">
-          <IndicesDisplay indices={indices} />
+          <ErrorBoundary>
+            <IndicesDisplay indices={indices || {}} />
+          </ErrorBoundary>
           <OptionsChain />
         </section>
         
         <section id="positions-and-orders">
-          <PositionsTable positions={positions} />
-          <TradesTable trades={trades} />
+          <ErrorBoundary>
+            <PositionsTable positions={positions || []} />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <TradesTable trades={trades} />
+          </ErrorBoundary>
         </section>
         
         <section id="charts">
           <MarketChart data={[]} />
-          <PnlChart trades={trades} />
+          <ErrorBoundary>
+            <PnlChart trades={trades} />
+          </ErrorBoundary>
         </section>
         
         <LogsPanel />
       </main>
     </div>
+  );
+};
+
+function App() {
+  return (
+    <TradingProvider>
+      <AppContent />
+    </TradingProvider>
   );
 }
 

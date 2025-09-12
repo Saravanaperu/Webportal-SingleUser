@@ -1,5 +1,6 @@
 from databases import Database
 from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
 from pathlib import Path
 from .base import Base
 
@@ -16,10 +17,15 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 # The 'databases' library provides async support for a variety of databases.
 database = Database(DATABASE_URL)
 
-# The SQLAlchemy engine is used for synchronous operations like creating tables.
-# The connect_args is necessary for SQLite to work correctly in a multi-threaded environment like FastAPI.
+# The SQLAlchemy engine with connection pooling for better performance
 engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False},
+    poolclass=QueuePool,
+    pool_size=20,
+    max_overflow=30,
+    pool_pre_ping=True,
+    pool_recycle=3600
 )
 
 # The metadata object holds all the schema information of the declarative models.

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.gzip import GZipMiddleware
 
 from .api.routes import router as api_router
 from .api.ws_manager import manager as ws_manager
@@ -14,8 +15,12 @@ from .services.order_manager import OrderManager
 from .services.strategy import TradingStrategy
 from .services.instrument_manager import instrument_manager
 from .services.market_data_manager import market_data_manager
+from .services.cache_manager import cache_manager
 
 app = FastAPI(title="Automated Trading Portal")
+
+# Add compression middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # --- Path Setup ---
 # Get the absolute path to the root of the project (one level up from 'backend')
@@ -130,6 +135,15 @@ async def startup_event():
         )
         logger.info("Session refresh task started.")
 
+        # Start cache manager
+        await cache_manager.start()
+        logger.info("Cache manager started")
+        
+        # Start background tasks
+        from .services.background_tasks import background_task_manager
+        await background_task_manager.start(app.state)
+        logger.info("Background tasks started")
+        
         logger.info("✅ Trading Portal Started Successfully.")
 
     except Exception as e:
@@ -258,6 +272,14 @@ async def shutdown_event():
     Defines actions for graceful application shutdown.
     """
     logger.info("Application shutdown sequence initiated...")
+    
+    # Stop background tasks
+    from .services.background_tasks import background_task_manager
+    await background_task_manager.stop()
+    
+    # Stop cache manager
+    await cache_manager.stop()
+    
     tasks_to_cancel = ['strategy_task', 'websocket_task', 'market_data_task', 'order_update_task', 'refresh_task']
     for task_name in tasks_to_cancel:
         task = getattr(app.state, task_name, None)

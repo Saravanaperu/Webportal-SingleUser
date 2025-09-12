@@ -45,23 +45,27 @@ class AngelRestClient:
         """Fetches user profile, including funds."""
         logger.info("Fetching profile from AngelOne...")
         try:
-            profile_data = self.smart_api.getProfile(refresh_token)
-            if profile_data and profile_data.get("status") and profile_data.get("data"):
-                data = profile_data["data"]
-                # Safely get balance and margin, defaulting to 0.0 if None
-                balance = data.get("net")
-                margin = data.get("availablecash")
-
+            # Get RMS (Risk Management System) data for funds
+            rms_data = self.smart_api.rmsLimit()
+            if rms_data and rms_data.get("status") and rms_data.get("data"):
+                data = rms_data["data"]
+                # Angel One RMS API returns funds data
+                balance = data.get("net", 0)
+                margin_used = data.get("utiliseddebits", 0)
+                available_cash = data.get("availablecash", 0)
+                
+                logger.info(f"RMS Data - Net: {balance}, Used: {margin_used}, Available: {available_cash}")
+                
                 return {
                     "balance": float(balance) if balance is not None else 0.0,
-                    "margin": float(margin) if margin is not None else 0.0,
-                    "name": data.get("name")
+                    "margin": float(margin_used) if margin_used is not None else 0.0,
+                    "available": float(available_cash) if available_cash is not None else 0.0
                 }
             else:
-                logger.error(f"Failed to fetch profile: {profile_data.get('message')}")
+                logger.error(f"Failed to fetch RMS data: {rms_data.get('message') if rms_data else 'No response'}")
                 return None
         except Exception as e:
-            logger.error(f"Error fetching profile: {e}", exc_info=True)
+            logger.error(f"Error fetching RMS data: {e}", exc_info=True)
             return None
 
     def get_positions(self) -> list | None:
@@ -160,6 +164,19 @@ class AngelRestClient:
                 
         except Exception as e:
             logger.error(f"Error fetching quote for {symbol}: {e}", exc_info=True)
+            return None
+    
+    def get_holdings(self) -> list | None:
+        """Fetches holdings data."""
+        try:
+            holdings_data = self.smart_api.holding()
+            if holdings_data and holdings_data.get("status"):
+                return holdings_data.get("data", [])
+            else:
+                logger.error(f"Failed to fetch holdings: {holdings_data.get('message') if holdings_data else 'No response'}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching holdings: {e}", exc_info=True)
             return None
     
     def _get_symbol_token(self, symbol: str) -> str:

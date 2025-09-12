@@ -1,6 +1,6 @@
 import React from 'react';
 
-const DailyStats = ({ stats, dataFeedConnected, isStrategyRunning }) => {
+const DailyStats = React.memo(({ stats, dataFeedConnected, isStrategyRunning }) => {
   const getPnlClass = (pnl) => (pnl >= 0 ? 'status-positive' : 'status-negative');
 
   return (
@@ -45,6 +45,6 @@ const DailyStats = ({ stats, dataFeedConnected, isStrategyRunning }) => {
       </div>
     </div>
   );
-};
+});
 
 export default DailyStats;

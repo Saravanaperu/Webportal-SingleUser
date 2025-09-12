@@ -1,6 +1,20 @@
 import React from 'react';
 
-const PositionsTable = ({ positions }) => {
+const PositionRow = React.memo(({ pos, index }) => {
+  const pnlClass = pos.pnl >= 0 ? 'positive' : 'negative';
+  return (
+    <tr key={index}>
+      <td>{pos.symbol}</td>
+      <td className={pos.side.toLowerCase()}>{pos.side}</td>
+      <td>{pos.qty}</td>
+      <td>{Number(pos.entry_price).toFixed(2)}</td>
+      <td>{Number(pos.live_price).toFixed(2)}</td>
+      <td className={pnlClass}>{pos.pnl.toFixed(2)}</td>
+    </tr>
+  );
+});
+
+const PositionsTable = React.memo(({ positions }) => {
   return (
     <div id="positions">
       <h2>Open Positions</h2>
@@ -17,19 +31,9 @@ const PositionsTable = ({ positions }) => {
         </thead>
         <tbody id="positions-table-body">
           {positions && positions.length > 0 ? (
-            positions.map((pos, index) => {
-              const pnlClass = pos.pnl >= 0 ? 'positive' : 'negative';
-              return (
-                <tr key={index}>
-                  <td>{pos.symbol}</td>
-                  <td className={pos.side.toLowerCase()}>{pos.side}</td>
-                  <td>{pos.qty}</td>
-                  <td>{Number(pos.entry_price).toFixed(2)}</td>
-                  <td>{Number(pos.live_price).toFixed(2)}</td>
-                  <td className={pnlClass}>{pos.pnl.toFixed(2)}</td>
-                </tr>
-              );
-            })
+            positions.map((pos, index) => (
+              <PositionRow key={index} pos={pos} index={index} />
+            ))
           ) : (
             <tr>
               <td colSpan="6">No open positions.</td>
@@ -39,6 +43,6 @@ const PositionsTable = ({ positions }) => {
       </table>
     </div>
   );
-};
+});
 
 export default PositionsTable;
