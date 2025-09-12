@@ -222,8 +222,8 @@ async def get_options_chain(symbol: str, request: Request):
         distance_from_atm = abs(i - 5)
         
         # Calculate realistic option prices based on live spot and symbol
-        price_multiplier = 0.002 if symbol == "BANKNIFTY" else 0.0015
-        min_premium = 5 if symbol == "BANKNIFTY" else 3
+        price_multiplier = 0.0025 if symbol == "BANKNIFTY" else 0.002
+        min_premium = 8 if symbol == "BANKNIFTY" else 5
         
         if distance_from_atm == 0:  # ATM
             call_ltp = max(min_premium, spot_price * price_multiplier)
@@ -239,16 +239,16 @@ async def get_options_chain(symbol: str, request: Request):
             time_value_put = spot_price * (price_multiplier * 0.5)
             put_ltp = max(min_premium, intrinsic_put + time_value_put)
         
-        # Volume and OI based on symbol and distance from ATM
+        # Volume and OI based on symbol and distance from ATM - current market levels
         if symbol == "BANKNIFTY":
-            base_volume = 80000 - (distance_from_atm * 12000)
-            base_oi = 150000 - (distance_from_atm * 20000)
+            base_volume = 120000 - (distance_from_atm * 15000)
+            base_oi = 200000 - (distance_from_atm * 25000)
         elif symbol == "NIFTY":
-            base_volume = 60000 - (distance_from_atm * 10000)
-            base_oi = 120000 - (distance_from_atm * 18000)
+            base_volume = 90000 - (distance_from_atm * 12000)
+            base_oi = 180000 - (distance_from_atm * 22000)
         else:  # FINNIFTY
-            base_volume = 40000 - (distance_from_atm * 8000)
-            base_oi = 80000 - (distance_from_atm * 12000)
+            base_volume = 60000 - (distance_from_atm * 10000)
+            base_oi = 120000 - (distance_from_atm * 15000)
         
         options_data.append({
             "strike": strike,

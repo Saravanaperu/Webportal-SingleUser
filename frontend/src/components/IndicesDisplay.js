@@ -1,24 +1,14 @@
 import React from 'react';
 
 const IndicesDisplay = ({ indices }) => {
-  // Fallback data when broker is not available
-  const fallbackData = {
-    NIFTY: { price: 19847.25, change: -23.45, changePercent: -0.12 },
-    BANKNIFTY: { price: 45234.80, change: 156.30, changePercent: 0.35 },
-    FINNIFTY: { price: 18965.15, change: 42.85, changePercent: 0.23 }
-  };
-  
-  // Check if we have valid data or errors
-  const hasError = indices && indices.error;
+  // Check if we have valid data from broker API
   const hasValidData = indices && Object.values(indices).some(item => item.price > 0);
-  const hasData = hasValidData || hasError;
+  const hasError = indices && indices.error;
   
-  // Use provided data, fallback data, or loading state
+  // Only use live broker data - no fallback/mock data
   let displayData;
   if (hasValidData) {
     displayData = indices;
-  } else if (hasError) {
-    displayData = fallbackData;
   } else {
     displayData = {
       NIFTY: { price: 0, change: 0, changePercent: 0 },
@@ -41,8 +31,8 @@ const IndicesDisplay = ({ indices }) => {
   return (
     <div className="card">
       <h3>
-        Indices {hasData ? (marketClosed ? '📊' : '🟢') : '🔄'}
-        {marketClosed && hasData && <span style={{ fontSize: '0.8rem', color: '#666' }}> (Last Traded Prices)</span>}
+        Indices {hasValidData ? (marketClosed ? '📊' : '🟢') : '🔄'}
+        {marketClosed && hasValidData && <span style={{ fontSize: '0.8rem', color: '#666' }}> (Live Prices)</span>}
       </h3>
       <div style={{ display: 'grid', gap: '1rem' }}>
         {Object.entries(displayData).map(([name, data]) => (
@@ -71,19 +61,19 @@ const IndicesDisplay = ({ indices }) => {
       <div style={{ 
         marginTop: '1rem', 
         padding: '0.5rem', 
-        background: hasValidData ? (marketClosed ? '#e2e3e5' : '#d4edda') : hasError ? '#f8d7da' : '#fff3cd', 
+        background: hasValidData ? (marketClosed ? '#e2e3e5' : '#d4edda') : '#fff3cd', 
         borderRadius: '4px', 
         fontSize: '0.9rem', 
-        color: hasValidData ? (marketClosed ? '#383d41' : '#155724') : hasError ? '#721c24' : '#856404' 
+        color: hasValidData ? (marketClosed ? '#383d41' : '#155724') : '#856404' 
       }}>
         {hasValidData ? (
           marketClosed ? 
-          '📊 Market Closed - Showing Last Traded Prices' : 
-          '✅ Live Market Data'
+          '📊 Market Closed - Live Prices from Broker' : 
+          '✅ Live Market Data from Broker'
         ) : hasError ? (
-          '⚠️ Broker Unavailable - Showing Demo Data'
+          '⚠️ Broker Connection Error - Retrying...'
         ) : (
-          '🔄 Connecting to broker for live data...'
+          '🔄 Fetching live data from broker...'
         )}
       </div>
     </div>

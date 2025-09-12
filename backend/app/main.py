@@ -55,11 +55,8 @@ async def startup_event():
         await database.connect()
         create_tables()
         # Create market data tables
-        from sqlalchemy import create_engine
         from .models.market_data import Base as MarketDataBase
-        import os
-        database_url = os.getenv("DATABASE_URL", "sqlite:///./data/trading_portal.db")
-        engine = create_engine(database_url)
+        from .db.session import engine
         MarketDataBase.metadata.create_all(bind=engine)
         logger.info("Database connected and tables verified.")
     except Exception as e:
@@ -79,9 +76,9 @@ async def startup_event():
 
         # Fetch initial account details to bootstrap the Risk Manager
         account_details = await connector.get_account_details()
-        equity = account_details.get('balance', 100000.0) if account_details else 100000.0
+        equity = account_details.get('balance', 500000.0) if account_details else 500000.0
         if not account_details:
-             logger.warning("Failed to fetch account details. Using default equity for RiskManager.")
+             logger.warning("Failed to fetch account details. Using production default equity for RiskManager.")
 
         # Initialize core services
         risk_manager = RiskManager(account_equity=equity)

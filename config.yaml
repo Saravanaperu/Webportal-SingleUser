@@ -46,10 +46,10 @@ strategy:
     momentum: 0.15
     max_trade_hold_minutes: 10
 risk:
-  risk_per_trade_percent: 1.0  # Higher for options
-  max_daily_loss_percent: 3.0
-  consecutive_losses_stop: 3
-  max_positions: 3
+  risk_per_trade_percent: 0.8  # Optimized for options scalping
+  max_daily_loss_percent: 2.5
+  consecutive_losses_stop: 4
+  max_positions: 5
   # Options-specific risk parameters
   max_premium_risk_percent: 2.0
   theta_decay_exit_minutes: 15
@@ -83,10 +83,10 @@ trading:
   # NEW: Trading parameters
   lot_sizes:
     BANKNIFTY: 15
-    NIFTY: 50
-    FINNIFTY: 40
-  risk_free_rate: 0.06
-  default_volatility: 0.2
+    NIFTY: 25
+    FINNIFTY: 25
+  risk_free_rate: 0.065
+  default_volatility: 0.18
 cooldown:
   after_consecutive_losses_minutes: 20
   after_big_loss_minutes: 45
