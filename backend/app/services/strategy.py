@@ -121,34 +121,38 @@ class OptionsScalpingStrategy:
         return df
 
     def _is_bullish_setup(self, latest: pd.Series, price: float, momentum: float, price_velocity: float, volume_surge: float) -> int:
-        """Check for a bullish setup based on technical indicators."""
+        """Check for a bullish setup with high win rate criteria."""
         bullish_signals = [
-            latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],
-            price > latest['VWAP'],
-            latest['SUPERTd'] == 1,
-            latest['RSI_FAST'] > 40 and latest['RSI_FAST'] < 75,
-            latest['STOCH_K'] > latest['STOCH_D'] and latest['STOCH_K'] > 20,
-            price > latest['BB_M'],
-            momentum > self.params.scalping_thresholds.momentum,
-            price_velocity > 0,
-            volume_surge > self.params.volume_surge_threshold,
-            latest['higher_high']
+            latest[f'EMA_{self.params.ema_short}'] > latest[f'EMA_{self.params.ema_long}'],  # Trend alignment
+            price > latest['VWAP'] * 1.001,  # Above VWAP with buffer
+            latest['SUPERTd'] == 1,  # SuperTrend bullish
+            latest['RSI_FAST'] > 45 and latest['RSI_FAST'] < 70,  # Momentum not overbought
+            latest['STOCH_K'] > latest['STOCH_D'] and latest['STOCH_K'] > 25,  # Stoch bullish cross
+            price > latest['BB_M'] and price < latest['BB_U'] * 0.98,  # Above middle, not at upper
+            momentum > 0.15,  # Strong momentum (0.15%)
+            price_velocity > 0.05,  # Positive acceleration
+            volume_surge > 1.5,  # Volume confirmation
+            latest['higher_high'],  # Market structure
+            latest['close'] > latest['open'],  # Green candle
+            abs(momentum) > 0.1  # Minimum momentum threshold
         ]
         return sum(bullish_signals)
 
     def _is_bearish_setup(self, latest: pd.Series, price: float, momentum: float, price_velocity: float, volume_surge: float) -> int:
-        """Check for a bearish setup based on technical indicators."""
+        """Check for a bearish setup with high win rate criteria."""
         bearish_signals = [
-            latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],
-            price < latest['VWAP'],
-            latest['SUPERTd'] == -1,
-            latest['RSI_FAST'] < 60 and latest['RSI_FAST'] > 25,
-            latest['STOCH_K'] < latest['STOCH_D'] and latest['STOCH_K'] < 80,
-            price < latest['BB_M'],
-            momentum < -self.params.scalping_thresholds.momentum,
-            price_velocity < 0,
-            volume_surge > self.params.volume_surge_threshold,
-            latest['lower_low']
+            latest[f'EMA_{self.params.ema_short}'] < latest[f'EMA_{self.params.ema_long}'],  # Trend alignment
+            price < latest['VWAP'] * 0.999,  # Below VWAP with buffer
+            latest['SUPERTd'] == -1,  # SuperTrend bearish
+            latest['RSI_FAST'] < 55 and latest['RSI_FAST'] > 30,  # Momentum not oversold
+            latest['STOCH_K'] < latest['STOCH_D'] and latest['STOCH_K'] < 75,  # Stoch bearish cross
+            price < latest['BB_M'] and price > latest['BB_L'] * 1.02,  # Below middle, not at lower
+            momentum < -0.15,  # Strong negative momentum
+            price_velocity < -0.05,  # Negative acceleration
+            volume_surge > 1.5,  # Volume confirmation
+            latest['lower_low'],  # Market structure
+            latest['close'] < latest['open'],  # Red candle
+            abs(momentum) > 0.1  # Minimum momentum threshold
         ]
         return sum(bearish_signals)
 
@@ -178,10 +182,13 @@ class OptionsScalpingStrategy:
             bullish_score = self._is_bullish_setup(latest, price, momentum, price_velocity, volume_surge)
             bearish_score = self._is_bearish_setup(latest, price, momentum, price_velocity, volume_surge)
             
-            if bullish_score >= self.params.min_confirmations:
+            # Require higher confirmations for better win rate
+            min_signals = max(self.params.min_confirmations, 9)  # At least 9/12 signals
+            
+            if bullish_score >= min_signals:
                 direction = 'BULLISH'
                 confidence = bullish_score
-            elif bearish_score >= self.params.min_confirmations:
+            elif bearish_score >= min_signals:
                 direction = 'BEARISH'
                 confidence = bearish_score
             else:

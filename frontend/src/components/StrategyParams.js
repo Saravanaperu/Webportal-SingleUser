@@ -96,24 +96,29 @@ const StrategyParams = ({ params }) => {
             <form onSubmit={handleSubmit}>
               <div style={{ display: 'grid', gap: '15px' }}>
                 <div>
-                  <label>EMA Short</label>
+                  <label><strong>EMA Short Period</strong> (Fast moving average)</label>
                   <input type="number" name="ema_short" value={formParams.ema_short} onChange={handleChange} style={{ width: '100%', padding: '8px', marginTop: '5px' }} />
+                  <small style={{ color: '#666' }}>Recommended: 5-9 for scalping</small>
                 </div>
                 <div>
-                  <label>EMA Long</label>
+                  <label><strong>EMA Long Period</strong> (Slow moving average)</label>
                   <input type="number" name="ema_long" value={formParams.ema_long} onChange={handleChange} style={{ width: '100%', padding: '8px', marginTop: '5px' }} />
+                  <small style={{ color: '#666' }}>Recommended: 13-21 for trend confirmation</small>
                 </div>
                 <div>
-                  <label>ATR Period</label>
+                  <label><strong>ATR Period</strong> (Volatility measurement)</label>
                   <input type="number" name="atr_period" value={formParams.atr_period} onChange={handleChange} style={{ width: '100%', padding: '8px', marginTop: '5px' }} />
+                  <small style={{ color: '#666' }}>Recommended: 14 for standard volatility</small>
                 </div>
                 <div>
-                  <label>SuperTrend Period</label>
+                  <label><strong>SuperTrend Period</strong> (Trend indicator period)</label>
                   <input type="number" name="supertrend_period" value={formParams.supertrend_period} onChange={handleChange} style={{ width: '100%', padding: '8px', marginTop: '5px' }} />
+                  <small style={{ color: '#666' }}>Recommended: 7-10 for scalping</small>
                 </div>
                 <div>
-                  <label>SuperTrend Multiplier</label>
+                  <label><strong>SuperTrend Multiplier</strong> (Sensitivity factor)</label>
                   <input type="number" step="0.1" name="supertrend_multiplier" value={formParams.supertrend_multiplier} onChange={handleChange} style={{ width: '100%', padding: '8px', marginTop: '5px' }} />
+                  <small style={{ color: '#666' }}>Recommended: 2.0-3.0 (higher = less sensitive)</small>
                 </div>
               </div>
               <div style={{ marginTop: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>

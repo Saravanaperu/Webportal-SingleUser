@@ -10,7 +10,8 @@ import MarketChart from './components/MarketChart';
 import PnlChart from './components/PnlChart';
 import PositionsTable from './components/PositionsTable';
 import TradesTable from './components/TradesTable';
-import LogsPanel from './components/LogsPanel';
+import NotificationSystem from './components/NotificationSystem';
+import BacktestPanel from './components/BacktestPanel';
 
 import IndicesDisplay from './components/IndicesDisplay';
 import OptionsChain from './components/OptionsChain';
@@ -93,7 +94,8 @@ const AppContent = () => {
           </ErrorBoundary>
         </section>
         
-        <LogsPanel />
+        <BacktestPanel />
+        <NotificationSystem />
       </main>
     </div>
   );
