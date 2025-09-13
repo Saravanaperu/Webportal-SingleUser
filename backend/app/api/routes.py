@@ -8,6 +8,8 @@ from ..db.session import database
 from ..core.config import StrategyConfig
 from ..models.trading import HistoricalTrade
 from ..services.cache_manager import cache_manager
+from ..services.backtest_engine import backtest_engine
+from ..services.aggressive_scalping_strategy import aggressive_scalping_strategy
 
 router = APIRouter()
 
@@ -88,10 +90,87 @@ async def get_paper_trading_status():
 
 # === REST Endpoints ===
 
-@router.get("/logs")
-async def get_logs():
-    """Returns recent system logs"""
-    return {"logs": log_buffer}
+@router.get("/system/health")
+async def get_system_health(request: Request):
+    """Returns system health status and issues"""
+    issues = []
+    
+    try:
+        # Check broker connection
+        if not (hasattr(request.app.state, 'order_manager') and 
+                request.app.state.order_manager and 
+                hasattr(request.app.state.order_manager, 'connector') and
+                request.app.state.order_manager.connector):
+            issues.append({
+                'severity': 'error',
+                'message': 'Broker connection not available'
+            })
+        
+        # Check strategy status
+        if hasattr(request.app.state, 'strategy') and request.app.state.strategy:
+            if not request.app.state.strategy.is_running:
+                issues.append({
+                    'severity': 'warning', 
+                    'message': 'Trading strategy is not running'
+                })
+        
+        # Check market data feed
+        if hasattr(request.app.state, 'market_data_manager') and request.app.state.market_data_manager:
+            try:
+                last_tick = request.app.state.market_data_manager.get_last_tick_time()
+                if not last_tick or (datetime.utcnow() - last_tick).total_seconds() > 60:
+                    issues.append({
+                        'severity': 'warning',
+                        'message': 'Market data feed may be stale'
+                    })
+            except:
+                pass
+        
+        return {'issues': issues}
+        
+    except Exception as e:
+        return {'issues': [{'severity': 'error', 'message': f'Health check failed: {str(e)}'}]}
+
+@router.post("/backtest/run")
+async def run_backtest(request: Request, params: dict = Body(...)):
+    """Run strategy backtest with real broker data"""
+    try:
+        strategy_type = params.get('strategy', 'options_scalping')
+        symbol = params.get('symbol', 'BANKNIFTY')
+        start_date = params.get('startDate')
+        end_date = params.get('endDate')
+        capital = params.get('capital', 100000)
+        
+        # Get real broker data
+        connector = getattr(request.app.state, 'connector', None)
+        if not connector:
+            logger.error("Connector not found in app.state")
+            return {"error": "Broker connection not available"}
+        
+        logger.info(f"Using connector: {type(connector).__name__}")
+        
+        # Fetch real historical data with timeframe
+        timeframe = params.get('timeframe', 'ONE_MINUTE')
+        data = await backtest_engine._fetch_broker_data_with_connector(connector, symbol, start_date, end_date, timeframe)
+        
+        if data is None or data.empty:
+            return {"error": "No historical data available from broker"}
+        
+        logger.info(f"Running backtest with {len(data)} real data points")
+        
+        if strategy_type == 'aggressive_scalping':
+            # Use aggressive scalping strategy
+            trades = aggressive_scalping_strategy._simulate_strategy(data, capital)
+        else:
+            # Use original high win rate strategy
+            trades = backtest_engine._simulate_strategy(data, capital)
+        
+        results = backtest_engine._calculate_metrics(trades, capital)
+        return results
+        
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}")
+        return {"error": str(e)}
 
 def can_make_broker_call():
     """Production rate limiting for broker API calls"""
