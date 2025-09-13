@@ -68,8 +68,33 @@ const BacktestPanel = () => {
           />
         </div>
         
+        <div className="form-row">
+          <label>Strategy:</label>
+          <select 
+            value={backtestParams.strategy} 
+            onChange={(e) => setBacktestParams({...backtestParams, strategy: e.target.value})}
+          >
+            <option value="options_scalping">High Win Rate (Conservative)</option>
+            <option value="aggressive_scalping">Aggressive Scalping (Daily Profits)</option>
+          </select>
+        </div>
+        
+        <div className="form-row">
+          <label>Timeframe:</label>
+          <select 
+            value={backtestParams.timeframe || 'ONE_MINUTE'} 
+            onChange={(e) => setBacktestParams({...backtestParams, timeframe: e.target.value})}
+          >
+            <option value="ONE_MINUTE">1 Minute</option>
+            <option value="THREE_MINUTE">3 Minutes</option>
+            <option value="FIVE_MINUTE">5 Minutes</option>
+            <option value="TEN_MINUTE">10 Minutes</option>
+            <option value="FIFTEEN_MINUTE">15 Minutes</option>
+          </select>
+        </div>
+        
         <button onClick={runBacktest} disabled={loading} className="btn-primary">
-          {loading ? 'Running...' : 'Run Backtest'}
+          {loading ? 'Testing All Timeframes...' : 'Find Best Timeframe'}
         </button>
       </div>
 
@@ -78,7 +103,14 @@ const BacktestPanel = () => {
           {results.error ? (
             <div className="error">{results.error}</div>
           ) : (
-            <div className="results-grid">
+            <>
+              <h4 style={{marginBottom: '1rem', textAlign: 'center'}}>
+                {backtestParams.strategy === 'aggressive_scalping' ? 
+                  '⚡ Aggressive Scalping Results' : 
+                  '🎯 High Win Rate Results'
+                }
+              </h4>
+              <div className="results-grid">
               <div className="result-item">
                 <span>Total Return:</span>
                 <span className={results.total_return >= 0 ? 'positive' : 'negative'}>
@@ -123,7 +155,58 @@ const BacktestPanel = () => {
                   {results.profit_factor === Infinity ? '∞' : results.profit_factor?.toFixed(2)}
                 </span>
               </div>
-            </div>
+              </div>
+              
+              {results.timeframe_comparison && (
+                <div className="timeframe-comparison">
+                  <h4 style={{marginTop: '1.5rem', marginBottom: '1rem'}}>⏱️ Timeframe Analysis (Best: {results.best_timeframe})</h4>
+                  <div className="timeframe-grid">
+                    {Object.entries(results.timeframe_comparison).map(([tf, stats]) => (
+                      <div key={tf} className={`timeframe-item ${tf === results.best_timeframe ? 'best' : ''}`}>
+                        <strong>{tf.replace('_', ' ')}</strong><br/>
+                        <span>{stats}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {results.daily_breakdown && (
+                <div className="daily-breakdown">
+                  <h4 style={{marginTop: '1.5rem', marginBottom: '1rem'}}>📅 Daily Performance</h4>
+                  <div className="daily-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Trades</th>
+                          <th>Win Rate</th>
+                          <th>P&L</th>
+                          <th>Return %</th>
+                          <th>Capital</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {results.daily_breakdown.map((day, index) => (
+                          <tr key={index}>
+                            <td>{day.date}</td>
+                            <td>{day.trades}</td>
+                            <td>{day.win_rate?.toFixed(1)}%</td>
+                            <td className={day.pnl >= 0 ? 'positive' : 'negative'}>
+                              ₹{day.pnl?.toFixed(0)}
+                            </td>
+                            <td className={day.return_pct >= 0 ? 'positive' : 'negative'}>
+                              {day.return_pct?.toFixed(2)}%
+                            </td>
+                            <td>₹{day.end_capital?.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -91,6 +91,7 @@ async def startup_event():
         strategy = TradingStrategy(order_manager=order_manager, risk_manager=risk_manager, connector=connector)
 
         # Store services in app.state to make them accessible from API endpoints
+        app.state.connector = connector  # Add connector to state
         app.state.risk_manager = risk_manager
         app.state.order_manager = order_manager
         app.state.strategy = strategy

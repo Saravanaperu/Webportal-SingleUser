@@ -179,6 +179,60 @@ class AngelRestClient:
             logger.error(f"Error fetching holdings: {e}", exc_info=True)
             return None
     
+    def get_historical_data(self, params: dict) -> list | None:
+        """Fetches historical OHLC data for backtesting."""
+        try:
+            # Map symbol to token
+            symbol = params.get('symbol')
+            token = self._get_symbol_token(symbol)
+            if not token:
+                logger.error(f"No token found for symbol: {symbol}")
+                return None
+            
+            # Prepare parameters for Angel One API
+            hist_params = {
+                "exchange": "NSE",
+                "symboltoken": token,
+                "interval": params.get('interval', 'ONE_MINUTE'),
+                "fromdate": params.get('from_date'),
+                "todate": params.get('to_date')
+            }
+            
+            logger.info(f"Fetching historical data for {symbol} from {params.get('from_date')} to {params.get('to_date')}")
+            
+            # Use getCandleData method
+            candle_data = self.smart_api.getCandleData(hist_params)
+            
+            if candle_data and candle_data.get("status"):
+                data = candle_data.get("data", [])
+                if data:
+                    # Convert to standard format
+                    formatted_data = []
+                    for candle in data:
+                        if len(candle) >= 6:
+                            formatted_data.append({
+                                'timestamp': candle[0],
+                                'open': float(candle[1]),
+                                'high': float(candle[2]),
+                                'low': float(candle[3]),
+                                'close': float(candle[4]),
+                                'volume': int(candle[5]) if candle[5] else 100000
+                            })
+                    
+                    logger.info(f"Fetched {len(formatted_data)} historical candles for {symbol}")
+                    return formatted_data
+                else:
+                    logger.warning(f"No historical data available for {symbol}")
+                    return None
+            else:
+                error_msg = candle_data.get('message', 'No response') if candle_data else 'No response'
+                logger.error(f"Failed to fetch historical data for {symbol}: {error_msg}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error fetching historical data: {e}", exc_info=True)
+            return None
+    
     def _get_symbol_token(self, symbol: str) -> str:
         """Get token for symbol"""
         token_map = {

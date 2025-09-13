@@ -471,6 +471,39 @@ tbody tr:hover {
   border-radius: 6px;
 }
 
+.daily-breakdown {
+  margin-top: 1.5rem;
+}
+
+.daily-table {
+  overflow-x: auto;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.daily-table table {
+  width: 100%;
+  margin-top: 0;
+}
+
+.daily-table th,
+.daily-table td {
+  padding: 0.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.daily-table th {
+  background: rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+  color: grey;
+}
+
+.daily-table td {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 /* Charts */
 .chart-container {
   height: 300px;
@@ -571,4 +604,36 @@ tbody tr:hover {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+.timeframe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.timeframe-item {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-align: center;
+  border: 2px solid transparent;
+  backdrop-filter: blur(10px);
+}
+
+.timeframe-item.best {
+  border-color: #48bb78;
+  background: rgba(72, 187, 120, 0.2);
+}
+
+.timeframe-item strong {
+  color: #fff;
+  font-size: 1.1rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.timeframe-item span {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
 }

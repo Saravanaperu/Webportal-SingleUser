@@ -123,3 +123,19 @@ class AngelOneConnector:
         except Exception as e:
             logger.warning(f"Failed to get quote for {symbol}: {e}")
             return None
+    
+    async def get_historical_data(self, symbol: str, from_date: str, to_date: str, interval: str = 'ONE_MINUTE') -> list | None:
+        """Fetches historical OHLC data for backtesting."""
+        if not self.rest_client:
+            return None
+        try:
+            params = {
+                'symbol': symbol,
+                'from_date': from_date,
+                'to_date': to_date,
+                'interval': interval
+            }
+            return await asyncio.to_thread(self.rest_client.get_historical_data, params)
+        except Exception as e:
+            logger.warning(f"Failed to get historical data for {symbol}: {e}")
+            return None

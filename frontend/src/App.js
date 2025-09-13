@@ -21,25 +21,19 @@ import ErrorBoundary from './components/ErrorBoundary';
 const AppContent = () => {
   const { account, positions, indices, stats, isConnected, loading } = useTradingContext();
   const [trades, setTrades] = useState([]);
-  const [strategyParams, setStrategyParams] = useState(null);
-
-  // Fetch less frequent data
+  // Fetch trades data
   useEffect(() => {
-    const fetchStaticData = async () => {
+    const fetchTrades = async () => {
       try {
-        const [tradesRes, paramsRes] = await Promise.all([
-          axios.get('/api/trades'),
-          axios.get('/api/strategy/parameters')
-        ]);
+        const tradesRes = await axios.get('/api/trades');
         setTrades(tradesRes.data);
-        setStrategyParams(paramsRes.data);
       } catch (error) {
-        console.error('Failed to fetch static data:', error);
+        console.error('Failed to fetch trades:', error);
       }
     };
 
-    fetchStaticData();
-    const interval = setInterval(fetchStaticData, 30000); // Every 30s
+    fetchTrades();
+    const interval = setInterval(fetchTrades, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -55,7 +49,6 @@ const AppContent = () => {
     <div className="App">
       <Header 
         isStrategyRunning={stats?.is_strategy_running || false} 
-        strategyParams={strategyParams} 
       />
       <main>
         <section id="overview">

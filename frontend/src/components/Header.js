@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import StrategyParams from './StrategyParams';
+
 import BrokerStatus from './BrokerStatus';
 import PaperTradingToggle from './PaperTradingToggle';
 
-const Header = ({ isStrategyRunning, strategyParams }) => {
+const Header = ({ isStrategyRunning }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const isMarketHours = () => {
@@ -74,7 +74,7 @@ const Header = ({ isStrategyRunning, strategyParams }) => {
         >
           🛑 Emergency Stop
         </button>
-        <StrategyParams params={strategyParams} />
+
       </div>
     </header>
   );

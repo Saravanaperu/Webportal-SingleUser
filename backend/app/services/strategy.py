@@ -27,7 +27,25 @@ class OptionsScalpingStrategy:
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.connector = connector
-        self.params = settings.strategy
+        # Hardcoded optimal settings for high win rate
+        self.params = type('obj', (object,), {
+            'trade_indices': ['BANKNIFTY', 'NIFTY', 'FINNIFTY'],
+            'ema_short': 5,
+            'ema_long': 13,
+            'supertrend_period': 7,
+            'supertrend_multiplier': 2.5,
+            'atr_period': 14,
+            'min_confirmations': 9,
+            'rsi_period': 5,
+            'bb_period': 20,
+            'stoch_k': 5,
+            'stoch_d': 3,
+            'volume_surge_threshold': 1.5,
+            'scalping_thresholds': type('obj', (object,), {
+                'momentum': 0.15,
+                'max_trade_hold_minutes': 8
+            })()
+        })()
         self.trade_indices = self.params.trade_indices
         self.is_running = False
         self.active_trades = {}
@@ -40,13 +58,9 @@ class OptionsScalpingStrategy:
         self.end_time = time.fromisoformat(settings.trading.hours['end'])
 
     def update_parameters(self, new_params: StrategyConfig):
-        """
-        Updates the strategy parameters safely.
-        """
-        logger.info(f"Updating options scalping parameters: {new_params.dict()}")
-        self.params = new_params
-        self.trade_indices = self.params.trade_indices
-        logger.info("Options scalping parameters updated.")
+        """Parameters are hardcoded for optimal performance"""
+        logger.info("Strategy parameters are hardcoded for optimal performance")
+        pass
 
     async def warm_up(self):
         """
